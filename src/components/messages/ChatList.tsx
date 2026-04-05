@@ -7,7 +7,7 @@ import Avatar from '@/components/ui/Avatar';
 import TrustBadge from '@/components/trust/TrustBadge';
 import { Conversation } from '@/types';
 import { formatTimeAgo, cn } from '@/lib/utils';
-import { currentUser } from '@/lib/mockData';
+import { useApp } from '@/context/AppContext';
 
 interface ChatListProps {
   conversations: Conversation[];
@@ -16,6 +16,7 @@ interface ChatListProps {
 }
 
 export default function ChatList({ conversations, activeId, onSelect }: ChatListProps) {
+  const { currentUser } = useApp();
   return (
     <div className="divide-y divide-theme">
       {conversations.map((conv, idx) => {
@@ -39,8 +40,9 @@ export default function ChatList({ conversations, activeId, onSelect }: ChatList
           >
             <Avatar
               name={otherUser.displayName}
+              src={otherUser.avatar}
               verified={otherUser.verified}
-              online={idx < 2}
+              online={idx < 3}
             />
             <div className="flex-1 min-w-0">
               <div className="flex items-center justify-between">

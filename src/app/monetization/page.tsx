@@ -30,8 +30,16 @@ const revenueBreakdown = [
 export default function MonetizationPage() {
   const [showModal, setShowModal] = useState<string | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState('');
-  const [withdrawMethod, setWithdrawMethod] = useState('bank');
   const [withdrawProcessing, setWithdrawProcessing] = useState(false);
+  const [withdrawDone, setWithdrawDone] = useState(false);
+  const [tiers, setTiers] = useState(mockMonetization.tiers);
+  const [editingTier, setEditingTier] = useState<string | null>(null);
+  const [storeItems, setStoreItems] = useState([
+    { id: '1', name: 'Ultimate Dev Toolkit', price: 29, sales: 156, type: 'Template' },
+    { id: '2', name: 'Social Media Growth Guide', price: 19, sales: 89, type: 'E-book' },
+    { id: '3', name: 'UI Component Library', price: 49, sales: 42, type: 'Code' },
+  ]);
+  const [withdrawMethod, setWithdrawMethod] = useState('bank');
   const [withdrawSuccess, setWithdrawSuccess] = useState(false);
   const [tipLink, setTipLink] = useState('');
   const [copied, setCopied] = useState(false);
@@ -231,16 +239,28 @@ export default function MonetizationPage() {
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold text-theme-primary">Manage Tiers</h3><button onClick={() => setShowModal(null)}><X className="w-5 h-5 text-theme-secondary" /></button></div>
                   <div className="space-y-3">
-                    {mockMonetization.tiers.map((tier) => (
+                    {tiers.map((tier) => (
                       <div key={tier.id} className="p-4 rounded-xl bg-theme-tertiary border border-theme">
                         <div className="flex items-center justify-between mb-2"><span className="font-bold text-theme-primary">{tier.name}</span><span className="text-xbee-primary font-bold">${tier.price}/mo</span></div>
                         <div className="flex items-center gap-2 mb-3"><Users className="w-3 h-3 text-theme-tertiary" /><span className="text-xs text-theme-tertiary">{tier.subscribers} subscribers</span><span className="text-xs font-bold text-emerald-400">${(tier.price * tier.subscribers).toFixed(0)}/mo revenue</span></div>
                         <div className="flex flex-wrap gap-1 mb-3">{tier.benefits.map(b => <span key={b} className="text-[10px] px-1.5 py-0.5 rounded bg-xbee-primary/10 text-xbee-primary">{b}</span>)}</div>
-                        <div className="flex gap-2"><button className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-xbee-primary/10 text-xbee-primary hover:bg-xbee-primary/20">Edit Tier</button><button className="py-1.5 px-3 rounded-lg text-xs font-bold text-theme-tertiary hover:text-red-400 transition-colors">Remove</button></div>
+                        <div className="flex gap-2">
+                          <button className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-xbee-primary/10 text-xbee-primary hover:bg-xbee-primary/20" onClick={() => { setEditingTier(editingTier === tier.id ? null : tier.id); }}>
+                            {editingTier === tier.id ? 'Cancel' : 'Edit Tier'}
+                          </button>
+                          <button className="py-1.5 px-3 rounded-lg text-xs font-bold text-theme-tertiary hover:text-red-400 transition-colors" onClick={() => { if (confirm(`Remove "${tier.name}" tier?`)) setTiers(prev => prev.filter(t => t.id !== tier.id)); }}>Remove</button>
+                        </div>
+                        {editingTier === tier.id && (
+                          <motion.div className="mt-3 p-3 rounded-lg bg-theme-hover border border-theme space-y-2" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }}>
+                            <input className="xbee-input text-sm" defaultValue={tier.name} placeholder="Tier name" onBlur={(e) => setTiers(prev => prev.map(t => t.id === tier.id ? { ...t, name: e.target.value } : t))} />
+                            <input className="xbee-input text-sm" type="number" defaultValue={tier.price} placeholder="Price" onBlur={(e) => setTiers(prev => prev.map(t => t.id === tier.id ? { ...t, price: Number(e.target.value) } : t))} />
+                            <button className="xbee-button-primary text-xs w-full py-2" onClick={() => setEditingTier(null)}>Save Changes</button>
+                          </motion.div>
+                        )}
                       </div>
                     ))}
                   </div>
-                  <motion.button className="w-full py-2.5 rounded-xl border border-dashed border-theme text-theme-tertiary text-sm font-bold mt-4 hover:border-xbee-primary hover:text-xbee-primary transition-colors" whileTap={{ scale: 0.98 }}>+ Add New Tier</motion.button>
+                  <motion.button className="w-full py-2.5 rounded-xl border border-dashed border-theme text-theme-tertiary text-sm font-bold mt-4 hover:border-xbee-primary hover:text-xbee-primary transition-colors" whileTap={{ scale: 0.98 }} onClick={() => { setTiers(prev => [...prev, { id: `tier-${Date.now()}`, name: 'New Tier', price: 5, subscribers: 0, benefits: ['Custom benefit'] }]); }}>+ Add New Tier</motion.button>
                 </div>
               )}
 
@@ -248,11 +268,25 @@ export default function MonetizationPage() {
               {showModal === 'store' && (
                 <div className="p-5">
                   <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold text-theme-primary">Digital Store</h3><button onClick={() => setShowModal(null)}><X className="w-5 h-5 text-theme-secondary" /></button></div>
-                  <div className="text-center py-8">
-                    <ShoppingBag className="w-12 h-12 text-xbee-primary mx-auto mb-3" />
-                    <p className="text-theme-primary font-bold mb-1">Your Digital Store</p>
-                    <p className="text-sm text-theme-tertiary mb-4">Sell e-books, templates, courses, and more directly to your followers.</p>
-                    <motion.button className="xbee-button-primary text-sm" whileTap={{ scale: 0.95 }}>Create Your First Product</motion.button>
+                  <div className="space-y-3">
+                    {storeItems.map((item) => (
+                      <div key={item.id} className="p-4 rounded-xl bg-theme-tertiary border border-theme">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="font-bold text-theme-primary text-sm">{item.name}</span>
+                          <span className="text-xbee-primary font-bold text-sm">${item.price}</span>
+                        </div>
+                        <div className="flex items-center gap-3 mb-2">
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-xbee-primary/10 text-xbee-primary">{item.type}</span>
+                          <span className="text-xs text-theme-tertiary">{item.sales} sales</span>
+                          <span className="text-xs font-bold text-emerald-400">${item.price * item.sales} earned</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button className="flex-1 py-1.5 rounded-lg text-xs font-bold bg-xbee-primary/10 text-xbee-primary hover:bg-xbee-primary/20">Edit</button>
+                          <button className="py-1.5 px-3 rounded-lg text-xs font-bold text-theme-tertiary hover:text-red-400 transition-colors" onClick={() => setStoreItems(prev => prev.filter(i => i.id !== item.id))}>Remove</button>
+                        </div>
+                      </div>
+                    ))}
+                    <motion.button className="w-full py-2.5 rounded-xl border border-dashed border-theme text-theme-tertiary text-sm font-bold mt-2 hover:border-xbee-primary hover:text-xbee-primary transition-colors" whileTap={{ scale: 0.98 }} onClick={() => setStoreItems(prev => [...prev, { id: `store-${Date.now()}`, name: 'New Product', price: 9, sales: 0, type: 'Digital' }])}>+ Add Product</motion.button>
                   </div>
                 </div>
               )}

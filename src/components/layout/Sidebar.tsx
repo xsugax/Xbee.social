@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Home, Search, Bell, Mail, Users, User, DollarSign, Settings,
   PenSquare, Shield, Crown, ShieldCheck, X, Sparkles, Check,
-  Zap, Eye, Lock, MessageCircle
+  Zap, Eye, Lock, MessageCircle, Bookmark
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import TrustBadge from '@/components/trust/TrustBadge';
@@ -18,6 +18,7 @@ const navItems = [
   { href: '/explore', label: 'Explore', icon: Search },
   { href: '/notifications', label: 'Notifications', icon: Bell, badgeKey: 'notifications' as const },
   { href: '/messages', label: 'Messages', icon: Mail, badgeKey: 'messages' as const },
+  { href: '/bookmarks', label: 'Bookmarks', icon: Bookmark },
   { href: '/communities', label: 'Communities', icon: Users },
   { href: '/profile', label: 'Profile', icon: User },
   { href: '/monetization', label: 'Monetization', icon: DollarSign },

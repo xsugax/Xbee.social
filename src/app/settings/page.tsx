@@ -286,15 +286,15 @@ export default function SettingsPage() {
         <motion.div className="glass-card overflow-hidden" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35 }}>
           <div className="px-5 py-3 border-b border-theme"><h2 className="text-sm font-bold text-theme-tertiary uppercase tracking-wider">About</h2></div>
           {[
-            { icon: Building2, label: 'About Xbee Technologies', desc: 'Our mission & company' },
-            { icon: FileText, label: 'Terms of Service', desc: 'Legal terms' },
-            { icon: Shield, label: 'Privacy Policy', desc: 'How we protect your data' },
-            { icon: Scale, label: 'Content Policy', desc: 'Community guidelines' },
-            { icon: HelpCircle, label: 'Help Center', desc: 'FAQs & support' },
+            { icon: Building2, label: 'About Xbee Technologies', desc: 'Our mission & company', url: '#about' },
+            { icon: FileText, label: 'Terms of Service', desc: 'Legal terms', url: '#terms' },
+            { icon: Shield, label: 'Privacy Policy', desc: 'How we protect your data', url: '#privacy' },
+            { icon: Scale, label: 'Content Policy', desc: 'Community guidelines', url: '#content' },
+            { icon: HelpCircle, label: 'Help Center', desc: 'FAQs & support', url: '#help' },
           ].map((item) => {
             const Icon = item.icon;
             return (
-              <motion.div key={item.label} className="flex items-center gap-4 px-5 py-3.5 hover:bg-theme-hover transition-colors cursor-pointer border-b border-theme last:border-0" whileTap={{ scale: 0.99 }}>
+              <motion.div key={item.label} className="flex items-center gap-4 px-5 py-3.5 hover:bg-theme-hover transition-colors cursor-pointer border-b border-theme last:border-0" whileTap={{ scale: 0.99 }} onClick={() => alert(`${item.label}\n\n${item.desc}\n\nFull documentation coming soon. Contact support@xbee.social for inquiries.`)}>
                 <Icon className="w-5 h-5 text-theme-secondary shrink-0" />
                 <div className="flex-1"><p className="text-sm font-medium text-theme-primary">{item.label}</p><p className="text-xs text-theme-tertiary">{item.desc}</p></div>
                 <ExternalLink className="w-4 h-4 text-theme-tertiary" />

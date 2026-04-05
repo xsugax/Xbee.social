@@ -119,7 +119,8 @@ export interface Poll {
   options: PollOption[];
   totalVotes: number;
   endsAt: string;
-  voted?: string;
+  voted?: boolean | string;
+  votedOption?: number;
 }
 
 export interface PollOption {

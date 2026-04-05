@@ -35,12 +35,21 @@ export default function NotificationsPage() {
   const { notifications, markNotificationRead, unreadCount } = useApp();
   const [activeTab, setActiveTab] = useState<NotifTab>('all');
   const [showSettings, setShowSettings] = useState(false);
+  const [filterType, setFilterType] = useState<string | null>(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const muteTimerRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  const filteredNotifs = activeTab === 'mentions'
-    ? notifications.filter(n => n.type === 'mention')
-    : activeTab === 'verified'
-    ? notifications.filter(n => n.actor?.verified)
-    : notifications;
+  const filteredNotifs = (() => {
+    let filtered = activeTab === 'mentions'
+      ? notifications.filter(n => n.type === 'mention')
+      : activeTab === 'verified'
+      ? notifications.filter(n => n.actor?.verified)
+      : notifications;
+    if (filterType) {
+      filtered = filtered.filter(n => n.type === filterType);
+    }
+    return filtered;
+  })();
 
   const markAllRead = () => {
     notifications.forEach(n => {
@@ -86,11 +95,16 @@ export default function NotificationsPage() {
                 <button className="flex items-center gap-2 w-full py-2 px-3 rounded-lg text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={markAllRead}>
                   <CheckCheck className="w-4 h-4 text-xbee-primary" /> Mark all as read
                 </button>
-                <button className="flex items-center gap-2 w-full py-2 px-3 rounded-lg text-sm text-theme-primary hover:bg-theme-hover transition-colors">
-                  <Filter className="w-4 h-4 text-xbee-secondary" /> Filter notifications
+                <button className="flex items-center gap-2 w-full py-2 px-3 rounded-lg text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { setFilterType(filterType ? null : 'like'); setShowSettings(false); }}>
+                  <Filter className="w-4 h-4 text-xbee-secondary" /> {filterType ? 'Clear filter' : 'Filter: Likes only'}
                 </button>
-                <button className="flex items-center gap-2 w-full py-2 px-3 rounded-lg text-sm text-theme-primary hover:bg-theme-hover transition-colors">
-                  <BellOff className="w-4 h-4 text-theme-tertiary" /> Mute for 1 hour
+                <button className="flex items-center gap-2 w-full py-2 px-3 rounded-lg text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => {
+                  setIsMuted(true);
+                  setShowSettings(false);
+                  if (muteTimerRef.current) clearTimeout(muteTimerRef.current);
+                  muteTimerRef.current = setTimeout(() => setIsMuted(false), 3600_000);
+                }}>
+                  <BellOff className="w-4 h-4 text-theme-tertiary" /> {isMuted ? 'Muted (1 hour)' : 'Mute for 1 hour'}
                 </button>
               </div>
             </motion.div>

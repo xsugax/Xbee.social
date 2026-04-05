@@ -155,7 +155,7 @@ export default function RightSidebar() {
           </motion.div>
         ))}
         <div className="px-4 py-3">
-          <span className="text-xbee-primary text-sm cursor-pointer hover:underline">Show more</span>
+          <Link href="/explore" className="text-xbee-primary text-sm hover:underline">Show more</Link>
         </div>
       </div>
 
@@ -200,7 +200,7 @@ export default function RightSidebar() {
           </motion.div>
         ))}
         <div className="px-4 py-3">
-          <span className="text-xbee-primary text-sm cursor-pointer hover:underline">Show more</span>
+          <Link href="/explore" className="text-xbee-primary text-sm hover:underline">Show more</Link>
         </div>
       </div>
 
@@ -214,14 +214,15 @@ export default function RightSidebar() {
         </div>
         <div className="p-4 space-y-3">
           {['What is the future of open-source AI?', 'Best practices for system design in 2026', 'How to build a personal brand as a developer'].map((topic, i) => (
-            <motion.div
-              key={i}
-              className="p-3 rounded-xl bg-theme-tertiary hover:bg-theme-hover transition-colors cursor-pointer"
-              whileHover={{ scale: 1.02 }}
-            >
-              <p className="text-sm text-theme-primary font-medium">{topic}</p>
-              <p className="text-xs text-xbee-primary mt-1">Join conversation →</p>
-            </motion.div>
+            <Link key={i} href="/communities">
+              <motion.div
+                className="p-3 rounded-xl bg-theme-tertiary hover:bg-theme-hover transition-colors cursor-pointer mb-3"
+                whileHover={{ scale: 1.02 }}
+              >
+                <p className="text-sm text-theme-primary font-medium">{topic}</p>
+                <p className="text-xs text-xbee-primary mt-1">Join conversation →</p>
+              </motion.div>
+            </Link>
           ))}
         </div>
       </div>
@@ -229,7 +230,7 @@ export default function RightSidebar() {
       {/* Footer */}
       <div className="mt-4 px-4 pb-4">
         <p className="text-xs text-theme-tertiary">
-          Terms · Privacy · Content Policy · Cookie Policy
+          <Link href="/settings" className="hover:underline">Terms</Link> · <Link href="/settings" className="hover:underline">Privacy</Link> · <Link href="/settings" className="hover:underline">Content Policy</Link> · <Link href="/settings" className="hover:underline">Cookie Policy</Link>
         </p>
         <p className="text-xs text-theme-tertiary mt-1">
           &copy; 1996–2026 Xbee Technologies, Inc.

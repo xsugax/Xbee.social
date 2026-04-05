@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Heart, Repeat2, MessageCircle, Share, Bookmark, MoreHorizontal,
@@ -129,7 +129,7 @@ function CommentItem({ comment, onLike, onReply, depth = 0 }: { comment: Comment
 }
 
 export default function PostCard({ post, index = 0, feedMode = 'trusted' }: PostCardProps) {
-  const { currentUser, likePost, repostPost, bookmarkPost, followUser, unfollowUser, isFollowing: checkFollowing } = useApp();
+  const { currentUser, likePost, repostPost, bookmarkPost, followUser, unfollowUser, isFollowing: checkFollowing, voteOnPoll, viewPost } = useApp();
   const [liked, setLiked] = useState(post.liked);
   const [likeCount, setLikeCount] = useState(post.likes);
   const [reposted, setReposted] = useState(post.reposted);
@@ -154,6 +154,12 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
 
   const isOwnPost = post.author.id === currentUser.id;
   const isFollowingAuthor = checkFollowing ? checkFollowing(post.author.id) : false;
+  const hasVoted = post.poll?.voted;
+
+  // Track views on mount
+  useEffect(() => {
+    viewPost?.(post.id);
+  }, [post.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleLike = () => {
     setLiked(!liked);
@@ -359,13 +365,16 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
             {/* Poll */}
             {post.poll && (
               <div className="mt-3 space-y-2">
-                {post.poll.options.map((option) => (
-                  <motion.div key={option.id} className="relative overflow-hidden rounded-xl border border-theme p-3 cursor-pointer hover:border-xbee-primary/50 transition-colors" whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.99 }}>
-                    <div className="absolute inset-0 bg-xbee-primary/10 rounded-xl" style={{ width: `${option.percentage}%` }} />
-                    <div className="relative flex items-center justify-between"><span className="text-sm font-medium text-theme-primary">{option.text}</span><span className="text-sm font-bold text-theme-primary">{option.percentage}%</span></div>
+                {post.poll.options.map((option, optIdx) => (
+                  <motion.div key={option.id} className={cn('relative overflow-hidden rounded-xl border p-3 transition-colors', hasVoted ? 'border-theme cursor-default' : 'border-theme cursor-pointer hover:border-xbee-primary/50')} whileHover={hasVoted ? {} : { scale: 1.01 }} whileTap={hasVoted ? {} : { scale: 0.99 }} onClick={(e) => { e.stopPropagation(); if (!hasVoted) voteOnPoll?.(post.id, optIdx); }}>
+                    <div className="absolute inset-0 bg-xbee-primary/10 rounded-xl transition-all" style={{ width: hasVoted ? `${option.percentage}%` : '0%' }} />
+                    <div className="relative flex items-center justify-between">
+                      <span className={cn('text-sm font-medium', post.poll!.votedOption === optIdx ? 'text-xbee-primary font-bold' : 'text-theme-primary')}>{option.text}</span>
+                      {hasVoted && <span className="text-sm font-bold text-theme-primary">{option.percentage}%</span>}
+                    </div>
                   </motion.div>
                 ))}
-                <p className="text-xs text-theme-tertiary mt-1">{formatNumber(post.poll.totalVotes)} votes</p>
+                <p className="text-xs text-theme-tertiary mt-1">{formatNumber(post.poll.totalVotes)} votes{!hasVoted && ' · Vote to see results'}</p>
               </div>
             )}
 

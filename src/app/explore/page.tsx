@@ -160,25 +160,29 @@ export default function ExplorePage() {
           <div className="p-4">
             <div className="grid grid-cols-2 gap-3">
               {[
-                { title: 'AI Revolution', icon: Sparkles, posts: '245K', gradient: 'from-xbee-primary to-xbee-secondary' },
-                { title: 'Creator Economy', icon: Zap, posts: '89K', gradient: 'from-xbee-secondary to-xbee-accent' },
-                { title: 'Open Source', icon: Users, posts: '156K', gradient: 'from-emerald-500 to-cyan-500' },
-                { title: 'Hot Debates', icon: Flame, posts: '312K', gradient: 'from-orange-500 to-pink-500' },
-              ].map(({ title, icon: Icon, posts: postCount, gradient }) => (
-                <motion.div
-                  key={title}
-                  className={`p-4 rounded-2xl bg-gradient-to-br ${gradient} cursor-pointer relative overflow-hidden`}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <div className="absolute top-2 right-2 opacity-20">
-                    <Icon className="w-16 h-16 text-white" />
-                  </div>
-                  <Icon className="w-6 h-6 text-white mb-2" />
-                  <h3 className="text-white font-bold text-lg">{title}</h3>
-                  <p className="text-white/70 text-sm">{postCount} posts</p>
-                </motion.div>
-              ))}
+                { title: 'AI Revolution', icon: Sparkles, keyword: 'AI', gradient: 'from-xbee-primary to-xbee-secondary' },
+                { title: 'Creator Economy', icon: Zap, keyword: 'creator', gradient: 'from-xbee-secondary to-xbee-accent' },
+                { title: 'Open Source', icon: Users, keyword: 'open source', gradient: 'from-emerald-500 to-cyan-500' },
+                { title: 'Hot Debates', icon: Flame, keyword: 'take', gradient: 'from-orange-500 to-pink-500' },
+              ].map(({ title, icon: Icon, keyword, gradient }) => {
+                const count = posts.filter(p => p.content.toLowerCase().includes(keyword.toLowerCase())).length;
+                return (
+                  <motion.div
+                    key={title}
+                    className={`p-4 rounded-2xl bg-gradient-to-br ${gradient} cursor-pointer relative overflow-hidden`}
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setSearchQuery(keyword)}
+                  >
+                    <div className="absolute top-2 right-2 opacity-20">
+                      <Icon className="w-16 h-16 text-white" />
+                    </div>
+                    <Icon className="w-6 h-6 text-white mb-2" />
+                    <h3 className="text-white font-bold text-lg">{title}</h3>
+                    <p className="text-white/70 text-sm">{count > 0 ? `${count} posts` : 'Explore'}</p>
+                  </motion.div>
+                );
+              })}
             </div>
           </div>
 
@@ -195,6 +199,7 @@ export default function ExplorePage() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.05 }}
+                onClick={() => setSearchQuery(trend.name)}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs text-theme-tertiary">{idx + 1} · {trend.category}</span>
@@ -208,11 +213,25 @@ export default function ExplorePage() {
             ))}
           </div>
 
-          {/* Trending Posts — from AppContext */}
+          {/* Tab-filtered Posts */}
           <div className="border-t border-theme pt-1">
-            {posts.slice(0, 3).map((post, index) => (
-              <PostCard key={post.id} post={post} index={index} />
-            ))}
+            {(() => {
+              const tabKeywords: Record<ExploreTab, string[]> = {
+                trending: [],
+                news: ['breaking', 'report', 'announce', 'launch', 'update', 'news'],
+                tech: ['code', 'dev', 'api', 'rust', 'css', 'react', 'deploy', 'bug', 'ship', 'build', 'auth', 'ai'],
+                entertainment: ['game', 'movie', 'music', 'show', 'watch', 'stream', 'play'],
+                sports: ['win', 'team', 'match', 'score', 'champion', 'league', 'training'],
+              };
+              const keywords = tabKeywords[activeTab];
+              const filtered = keywords.length > 0
+                ? posts.filter(p => keywords.some(kw => p.content.toLowerCase().includes(kw)))
+                : posts.slice(0, 5);
+              const display = filtered.length > 0 ? filtered.slice(0, 8) : posts.slice(0, 3);
+              return display.map((post, index) => (
+                <PostCard key={post.id} post={post} index={index} />
+              ));
+            })()}
           </div>
         </>
       )}

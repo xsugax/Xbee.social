@@ -48,6 +48,8 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
   const [isRecording, setIsRecording] = useState(false);
   const [recordTime, setRecordTime] = useState(0);
   const [translateActive, setTranslateActive] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
   const recordInterval = useRef<NodeJS.Timeout | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -152,7 +154,13 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
     "What AI features are built in?",
   ];
 
-  const chatSummary = `${otherUser.displayName} and you discussed a project collaboration. Key topics: CRDTs, real-time features, demo scheduling. Action item: Sync tomorrow at 10am.`;
+  const chatSummary = (() => {
+    if (messages.length === 0) return `No messages yet with ${otherUser.displayName}.`;
+    const lastN = messages.slice(-10).map(m => m.content).join(' ');
+    const words = lastN.split(/\s+/).filter(w => w.length > 3);
+    const topics = Array.from(new Set(words)).slice(0, 5).join(', ');
+    return `Chat with ${otherUser.displayName} — ${messages.length} messages. Recent topics: ${topics || 'general conversation'}.`;
+  })();
 
   return (
     <div className="flex flex-col h-full">
@@ -293,13 +301,13 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
                   <Link href={`/profile?user=${otherUser.id}`} className="flex items-center gap-2 px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover" onClick={() => setShowMoreMenu(false)}>
                     <UserIcon className="w-4 h-4" /> View Profile
                   </Link>
-                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover w-full text-left" onClick={() => setShowMoreMenu(false)}>
-                    <VolumeX className="w-4 h-4" /> Mute
+                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover w-full text-left" onClick={() => { setIsMuted(!isMuted); setShowMoreMenu(false); }}>
+                    <VolumeX className="w-4 h-4" /> {isMuted ? 'Unmute' : 'Mute'}
                   </button>
-                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-theme-hover w-full text-left" onClick={() => setShowMoreMenu(false)}>
-                    <Ban className="w-4 h-4" /> Block User
+                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-theme-hover w-full text-left" onClick={() => { setIsBlocked(!isBlocked); setShowMoreMenu(false); }}>
+                    <Ban className="w-4 h-4" /> {isBlocked ? 'Unblock User' : 'Block User'}
                   </button>
-                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover w-full text-left" onClick={() => setShowMoreMenu(false)}>
+                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover w-full text-left" onClick={() => { if (confirm('Clear all messages in this chat?')) { sendGlobalMsg(convId, ''); } setShowMoreMenu(false); }}>
                     <Trash2 className="w-4 h-4" /> Clear Chat
                   </button>
                 </motion.div>
@@ -460,7 +468,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
                   hasScamFlag && safeModeEnabled && 'opacity-60 blur-[1px]',
                   isGhost && 'border border-purple-500/30',
                 )}>
-                  <p className="text-[15px] leading-relaxed">{msg.content}</p>
+                  <p className="text-[15px] leading-relaxed">{translateActive && !isMe ? `[Translated] ${msg.content}` : msg.content}</p>
                   <div className={cn(
                     'flex items-center justify-end gap-1.5 mt-1',
                     isMe ? 'text-blue-200' : 'text-theme-tertiary'
@@ -567,7 +575,8 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
-              placeholder={ghostMode ? '👻 Ghost message...' : 'Type a message...'}
+              placeholder={isBlocked ? '🚫 User blocked' : ghostMode ? '👻 Ghost message...' : 'Type a message...'}
+              disabled={isBlocked}
               className={cn(
                 'w-full bg-theme-tertiary text-theme-primary rounded-full px-4 py-2.5 text-sm placeholder:text-theme-tertiary outline-none focus:ring-2 transition-all',
                 ghostMode ? 'focus:ring-purple-500/30 border border-purple-500/20' : 'focus:ring-xbee-primary/30',

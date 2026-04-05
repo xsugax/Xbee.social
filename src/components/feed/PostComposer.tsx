@@ -7,7 +7,7 @@ import {
   X, Wand2, Zap, Camera, Plus
 } from 'lucide-react';
 import Avatar from '@/components/ui/Avatar';
-import { currentUser } from '@/lib/mockData';
+import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
 import { MediaAttachment } from '@/types';
 
@@ -20,6 +20,7 @@ interface PostComposerProps {
 const EMOJI_SET = ['😀','😂','🥹','❤️','🔥','👏','🎉','💡','🚀','✨','😍','🤔','👀','💪','🙌','😎','🤝','💯','⭐','🎯','✅','🐝','💛','🙃','😤','🫡','🥳','💀','🤡','🫶'];
 
 export default function PostComposer({ onPost }: PostComposerProps) {
+  const { currentUser } = useApp();
   const [content, setContent] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [showAI, setShowAI] = useState(false);
@@ -264,7 +265,16 @@ export default function PostComposer({ onPost }: PostComposerProps) {
                 </motion.button>
                 <motion.button
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-xbee-primary/10 text-xbee-primary hover:bg-xbee-primary/20 transition-colors"
-                  onClick={() => setShowAI(!showAI)}
+                  onClick={() => {
+                    const suggestions = [
+                      "Just realized that the best code is the code you don't write. Simplicity wins every time. 🚀",
+                      "Hot take: Remote work isn't the future — async-first work is. Time zones don't matter when your docs are fire. 🔥",
+                      "3 things I learned shipping at scale:\n1. Start simple\n2. Measure everything\n3. Listen to your users, not your assumptions",
+                      "The difference between a junior and senior developer isn't years of experience — it's the ability to say 'I don't know, let me find out.'",
+                      "Building in public update: We just crossed 10K users organically. No ads, no growth hacks — just a product people actually want. ✨",
+                    ];
+                    setContent(suggestions[Math.floor(Math.random() * suggestions.length)]);
+                  }}
                   whileTap={{ scale: 0.95 }}
                 >
                   <Sparkles className="w-3 h-3" />
@@ -311,12 +321,29 @@ export default function PostComposer({ onPost }: PostComposerProps) {
                 <Film className="w-5 h-5" />
               </motion.button>
               {[
-                { icon: Mic, label: 'Voice', action: () => {} },
+                { icon: Mic, label: 'Voice', action: () => {
+                  if ('mediaDevices' in navigator) {
+                    setContent(prev => prev ? prev + ' 🎤 [Voice note attached]' : '🎤 [Voice note attached]');
+                  } else {
+                    setContent(prev => prev ? prev + ' 🎤 Voice message' : '🎤 Voice message');
+                  }
+                }},
                 { icon: BarChart3, label: 'Poll', action: () => { setShowPoll(!showPoll); setShowEmoji(false); } },
                 { icon: Smile, label: 'Emoji', action: () => { setShowEmoji(!showEmoji); setShowPoll(false); } },
                 { icon: MapPin, label: 'Location', action: () => {
-                  const loc = '📍 Current Location';
-                  setContent(prev => prev ? prev + ' ' + loc : loc);
+                  if ('geolocation' in navigator) {
+                    navigator.geolocation.getCurrentPosition(
+                      (pos) => {
+                        const loc = `📍 ${pos.coords.latitude.toFixed(2)}°, ${pos.coords.longitude.toFixed(2)}°`;
+                        setContent(prev => prev ? prev + ' ' + loc : loc);
+                      },
+                      () => {
+                        setContent(prev => prev ? prev + ' 📍 Location shared' : '📍 Location shared');
+                      }
+                    );
+                  } else {
+                    setContent(prev => prev ? prev + ' 📍 Location shared' : '📍 Location shared');
+                  }
                 }},
               ].map(({ icon: Icon, label, action }) => (
                 <motion.button

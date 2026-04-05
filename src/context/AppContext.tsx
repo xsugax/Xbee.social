@@ -17,6 +17,12 @@ interface AppState {
   repostPost: (postId: string) => void;
   bookmarkPost: (postId: string) => void;
 
+  // Poll voting
+  voteOnPoll: (postId: string, optionIndex: number) => void;
+
+  // View tracking
+  viewPost: (postId: string) => void;
+
   // Follow system
   followUser: (userId: string) => void;
   unfollowUser: (userId: string) => void;
@@ -47,7 +53,13 @@ const AppContext = createContext<AppState | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User>(defaultUser);
-  const [posts, setPosts] = useState<Post[]>(mockPosts);
+  const [posts, setPosts] = useState<Post[]>(() => {
+    try {
+      const saved = localStorage.getItem('xbee_posts');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return mockPosts;
+  });
   const [conversations, setConversations] = useState<Conversation[]>(mockConversations);
   const [messageStore, setMessageStore] = useState<Record<string, Message[]>>({
     'conv-1': mockMessages,
@@ -57,9 +69,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [following, setFollowing] = useState<Set<string>>(() => {
-    // Seed: current user follows some mock users by default
+    try {
+      const saved = localStorage.getItem('xbee_following');
+      if (saved) return new Set(JSON.parse(saved));
+    } catch {}
     return new Set(['user-1', 'user-3', 'user-4', 'user-7', 'user-8']);
   });
+
+  // Persist posts to localStorage
+  useEffect(() => {
+    try { localStorage.setItem('xbee_posts', JSON.stringify(posts.slice(0, 100))); } catch {}
+  }, [posts]);
+
+  // Persist following to localStorage
+  useEffect(() => {
+    try { localStorage.setItem('xbee_following', JSON.stringify(Array.from(following))); } catch {}
+  }, [following]);
 
   const followUser = useCallback((userId: string) => {
     setFollowing(prev => {
@@ -153,6 +178,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ));
   }, []);
 
+  const voteOnPoll = useCallback((postId: string, optionIndex: number) => {
+    setPosts(prev => prev.map(p => {
+      if (p.id !== postId || !p.poll || p.poll.voted) return p;
+      const newOptions = p.poll.options.map((opt, i) => ({
+        ...opt,
+        votes: i === optionIndex ? opt.votes + 1 : opt.votes,
+      }));
+      const totalVotes = newOptions.reduce((sum, o) => sum + o.votes, 0);
+      return {
+        ...p,
+        poll: {
+          ...p.poll,
+          options: newOptions.map(o => ({ ...o, percentage: Math.round((o.votes / totalVotes) * 100) })),
+          totalVotes,
+          voted: true,
+          votedOption: optionIndex,
+        },
+      };
+    }));
+  }, []);
+
+  const viewPost = useCallback((postId: string) => {
+    setPosts(prev => prev.map(p =>
+      p.id === postId ? { ...p, views: p.views + 1 } : p
+    ));
+  }, []);
+
   const getMessages = useCallback((convId: string) => {
     return messageStore[convId] || [];
   }, [messageStore]);
@@ -235,7 +287,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   return (
     <AppContext.Provider value={{
       currentUser, updateProfile,
-      posts, addPost, likePost, repostPost, bookmarkPost,
+      posts, addPost, likePost, repostPost, bookmarkPost, voteOnPoll, viewPost,
       followUser, unfollowUser, isFollowing: isFollowingUser, following,
       conversations, getMessages, sendMessage, addReply, activeConvId, setActiveConvId,
       notifications, addNotification, markNotificationRead, unreadCount,

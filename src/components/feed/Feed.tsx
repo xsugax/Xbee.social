@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Zap, Info, ArrowUp } from 'lucide-react';
+import { Shield, Zap, Info, ArrowUp, Loader2 } from 'lucide-react';
 import PostComposer from './PostComposer';
 import PostCard from './PostCard';
 import { mockUsers } from '@/lib/mockData';
@@ -21,12 +21,17 @@ const SIMULATED_POSTS = [
   { content: "The hardest part of building a startup isn't the code.\n\nIt's staring at an empty analytics dashboard for 6 months and still believing.", authorIdx: 5 },
 ];
 
+const POSTS_PER_PAGE = 10;
+
 export default function Feed() {
   const { posts, addPost } = useApp();
   const [feedMode, setFeedMode] = useState<FeedMode>('trusted');
   const [pendingPosts, setPendingPosts] = useState<Post[]>([]);
+  const [visibleCount, setVisibleCount] = useState(POSTS_PER_PAGE);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const simIndexRef = useRef(0);
   const feedTopRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -47,10 +52,28 @@ export default function Feed() {
   }, []);
 
   const showPending = useCallback(() => {
-    pendingPosts.forEach(p => addPost(p.content));
+    pendingPosts.forEach(p => addPost(p.content, p.media));
     setPendingPosts([]);
     feedTopRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [pendingPosts, addPost]);
+
+  // Infinite scroll observer
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting && visibleCount < sortedPosts.length) {
+          setIsLoadingMore(true);
+          setTimeout(() => {
+            setVisibleCount(prev => Math.min(prev + POSTS_PER_PAGE, sortedPosts.length));
+            setIsLoadingMore(false);
+          }, 600);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    if (loadMoreRef.current) observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  });
 
   const sortedPosts = useMemo(() => {
     if (feedMode === 'trusted') {
@@ -98,13 +121,29 @@ export default function Feed() {
       <div ref={feedTopRef}><PostComposer onPost={handlePost} /></div>
       <div>
         <AnimatePresence initial={false}>
-          {sortedPosts.map((post, index) => (
+          {sortedPosts.slice(0, visibleCount).map((post, index) => (
             <motion.div key={post.id} initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: 'easeOut' }}>
               <PostCard post={post} index={index} feedMode={feedMode} />
             </motion.div>
           ))}
         </AnimatePresence>
-        <div className="py-8 text-center"><p className="text-sm text-theme-tertiary">You are all caught up!</p></div>
+        {visibleCount < sortedPosts.length ? (
+          <div ref={loadMoreRef} className="py-8 flex justify-center">
+            {isLoadingMore ? (
+              <div className="flex items-center gap-2 text-xbee-primary">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-sm font-medium">Loading more posts...</span>
+              </div>
+            ) : (
+              <span className="text-sm text-theme-tertiary">Scroll for more</span>
+            )}
+          </div>
+        ) : (
+          <div className="py-8 text-center">
+            <p className="text-sm text-theme-tertiary">✨ You&apos;re all caught up!</p>
+            <p className="text-xs text-theme-tertiary mt-1">Check back later for new posts</p>
+          </div>
+        )}
       </div>
     </div>
   );

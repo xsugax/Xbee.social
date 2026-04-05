@@ -43,7 +43,14 @@ function ProfileContent() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const userPosts = posts.filter(p => p.author.id === displayUser.id);
-  const displayPosts = userPosts;
+  const displayPosts = useMemo(() => {
+    switch (activeTab) {
+      case 'replies': return userPosts.filter(p => p.content.startsWith('@') || p.content.includes('reply'));
+      case 'media': return userPosts.filter(p => p.media && p.media.length > 0);
+      case 'likes': return posts.filter(p => p.liked);
+      default: return userPosts;
+    }
+  }, [activeTab, userPosts, posts]);
   const activeInvites = mockInviteCodes.filter(c => c.active);
   const usedInvites = mockInviteCodes.filter(c => !c.active);
 

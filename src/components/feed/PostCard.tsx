@@ -144,6 +144,12 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
   const [commentText, setCommentText] = useState('');
   const [showMediaViewer, setShowMediaViewer] = useState<number | null>(null);
   const [showStats, setShowStats] = useState(false);
+  const [showReport, setShowReport] = useState(false);
+  const [showTip, setShowTip] = useState(false);
+  const [reportReason, setReportReason] = useState('');
+  const [reportSubmitted, setReportSubmitted] = useState(false);
+  const [tipAmount, setTipAmount] = useState('');
+  const [tipSent, setTipSent] = useState(false);
   const commentInputRef = useRef<HTMLInputElement>(null);
 
   const isOwnPost = post.author.id === currentUser.id;
@@ -270,10 +276,10 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
                           <Info className="w-4 h-4" /> Why am I seeing this?
                         </button>
                       )}
-                      <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors">
+                      <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { setShowTip(true); setShowMenu(false); }}>
                         <DollarSign className="w-4 h-4" /> Tip creator
                       </button>
-                      <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-xbee-danger hover:bg-theme-hover transition-colors">
+                      <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-xbee-danger hover:bg-theme-hover transition-colors" onClick={() => { setShowReport(true); setShowMenu(false); }}>
                         <Flag className="w-4 h-4" /> Report post
                       </button>
                     </motion.div>
@@ -460,6 +466,74 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
                 ))}
               </div>
             )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Report Modal */}
+      <AnimatePresence>
+        {showReport && (
+          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowReport(false); setReportSubmitted(false); setReportReason(''); }}>
+            <motion.div className="glass-card w-full max-w-sm p-5" initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}>
+              {reportSubmitted ? (
+                <div className="text-center py-4">
+                  <CheckCircle className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
+                  <p className="text-lg font-bold text-theme-primary">Report Submitted</p>
+                  <p className="text-sm text-theme-tertiary mt-1">Our team will review this post. Thank you for keeping Xbee safe.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold text-theme-primary flex items-center gap-2"><Flag className="w-5 h-5 text-red-400" /> Report Post</h3>
+                    <button onClick={() => setShowReport(false)}><X className="w-5 h-5 text-theme-secondary" /></button>
+                  </div>
+                  <p className="text-sm text-theme-tertiary mb-3">Why are you reporting this post?</p>
+                  <div className="space-y-2 mb-4">
+                    {['Spam or scam', 'Harassment or bullying', 'Misinformation', 'Hate speech', 'Violence or threats', 'Inappropriate content', 'Copyright violation', 'Other'].map((reason) => (
+                      <button key={reason} className={cn('w-full text-left px-3 py-2.5 rounded-xl text-sm transition-colors', reportReason === reason ? 'bg-xbee-primary/20 text-xbee-primary font-bold border border-xbee-primary/30' : 'bg-theme-tertiary text-theme-primary hover:bg-theme-hover')} onClick={() => setReportReason(reason)}>{reason}</button>
+                    ))}
+                  </div>
+                  <motion.button className="w-full py-2.5 rounded-xl bg-red-500 text-white font-bold text-sm disabled:opacity-50" disabled={!reportReason} onClick={() => setReportSubmitted(true)} whileTap={{ scale: 0.98 }}>Submit Report</motion.button>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Tip Modal */}
+      <AnimatePresence>
+        {showTip && (
+          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowTip(false); setTipSent(false); setTipAmount(''); }}>
+            <motion.div className="glass-card w-full max-w-sm p-5" initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}>
+              {tipSent ? (
+                <div className="text-center py-4">
+                  <div className="text-4xl mb-3">🎉</div>
+                  <p className="text-lg font-bold text-theme-primary">Tip Sent!</p>
+                  <p className="text-sm text-theme-tertiary mt-1">${tipAmount} sent to @{post.author.username}. They&apos;ll love this!</p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-bold text-theme-primary flex items-center gap-2"><DollarSign className="w-5 h-5 text-emerald-400" /> Tip @{post.author.username}</h3>
+                    <button onClick={() => setShowTip(false)}><X className="w-5 h-5 text-theme-secondary" /></button>
+                  </div>
+                  <p className="text-sm text-theme-tertiary mb-4">Show appreciation for great content</p>
+                  <div className="grid grid-cols-4 gap-2 mb-4">
+                    {['1', '2', '5', '10'].map(a => (
+                      <button key={a} className={cn('py-3 rounded-xl text-sm font-bold transition-colors', tipAmount === a ? 'bg-emerald-500 text-white' : 'bg-theme-tertiary text-theme-primary hover:bg-theme-hover')} onClick={() => setTipAmount(a)}>${a}</button>
+                    ))}
+                  </div>
+                  <div className="relative mb-4">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-tertiary" />
+                    <input type="number" min="1" className="xbee-input w-full py-2.5 pl-9" placeholder="Custom amount" value={tipAmount} onChange={(e) => setTipAmount(e.target.value)} />
+                  </div>
+                  <motion.button className="w-full py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2" disabled={!tipAmount || parseFloat(tipAmount) < 1} onClick={() => setTipSent(true)} whileTap={{ scale: 0.98 }}>
+                    <DollarSign className="w-4 h-4" /> Send ${tipAmount || '0'} Tip
+                  </motion.button>
+                </>
+              )}
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

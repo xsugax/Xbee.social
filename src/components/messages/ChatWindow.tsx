@@ -6,7 +6,8 @@ import {
   Send, Mic, Image, Sparkles, Shield, ArrowLeft,
   Phone, Video, MoreVertical, Bot, Languages, FileText,
   AlertTriangle, ShieldAlert, ShieldOff, ShieldCheck,
-  Ghost, Clock, Camera, Timer, X
+  Ghost, Clock, Camera, Timer, X, PhoneOff, Ban, VolumeX,
+  Trash2, User as UserIcon, Square
 } from 'lucide-react';
 import Avatar from '@/components/ui/Avatar';
 import TrustBadge from '@/components/trust/TrustBadge';
@@ -41,6 +42,13 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
   const [showGhostPicker, setShowGhostPicker] = useState(false);
   const [showSummary, setShowSummary] = useState(false);
   const [dynamicSuggestions, setDynamicSuggestions] = useState<string[]>([]);
+  const [showCallModal, setShowCallModal] = useState<'audio' | 'video' | null>(null);
+  const [callState, setCallState] = useState<'ringing' | 'ended'>('ringing');
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordTime, setRecordTime] = useState(0);
+  const [translateActive, setTranslateActive] = useState(false);
+  const recordInterval = useRef<NodeJS.Timeout | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const isHighRisk = conversation?.riskLevel === 'warning';
@@ -49,6 +57,38 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  const startCall = (type: 'audio' | 'video') => {
+    setCallState('ringing');
+    setShowCallModal(type);
+    setTimeout(() => setCallState('ended'), 4000);
+  };
+
+  const startRecording = () => {
+    setIsRecording(true);
+    setRecordTime(0);
+    recordInterval.current = setInterval(() => setRecordTime(t => t + 1), 1000);
+  };
+
+  const stopRecording = (send: boolean) => {
+    setIsRecording(false);
+    if (recordInterval.current) clearInterval(recordInterval.current);
+    if (send && recordTime > 0) {
+      sendGlobalMsg(convId, `🎤 Voice message (${recordTime}s)`);
+    }
+    setRecordTime(0);
+  };
+
+  const handleImageUpload = () => {
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = 'image/*';
+    fileInput.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) sendGlobalMsg(convId, `📷 Image: ${file.name}`);
+    };
+    fileInput.click();
+  };
 
   const handleSend = () => {
     if (!input.trim()) return;
@@ -237,15 +277,35 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
           >
             {safeModeEnabled ? <ShieldAlert className="w-5 h-5" /> : <ShieldOff className="w-5 h-5" />}
           </motion.button>
-          <motion.button className="p-2 rounded-full hover:bg-theme-hover text-theme-secondary" whileTap={{ scale: 0.9 }}>
+          <motion.button className="p-2 rounded-full hover:bg-theme-hover text-theme-secondary" whileTap={{ scale: 0.9 }} onClick={() => startCall('audio')} title="Voice Call">
             <Phone className="w-5 h-5" />
           </motion.button>
-          <motion.button className="p-2 rounded-full hover:bg-theme-hover text-theme-secondary" whileTap={{ scale: 0.9 }}>
+          <motion.button className="p-2 rounded-full hover:bg-theme-hover text-theme-secondary" whileTap={{ scale: 0.9 }} onClick={() => startCall('video')} title="Video Call">
             <Video className="w-5 h-5" />
           </motion.button>
-          <motion.button className="p-2 rounded-full hover:bg-theme-hover text-theme-secondary" whileTap={{ scale: 0.9 }}>
-            <MoreVertical className="w-5 h-5" />
-          </motion.button>
+          <div className="relative">
+            <motion.button className="p-2 rounded-full hover:bg-theme-hover text-theme-secondary" whileTap={{ scale: 0.9 }} onClick={() => setShowMoreMenu(!showMoreMenu)}>
+              <MoreVertical className="w-5 h-5" />
+            </motion.button>
+            <AnimatePresence>
+              {showMoreMenu && (
+                <motion.div className="absolute right-0 top-12 glass-card w-48 py-1 z-30" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }}>
+                  <Link href={`/profile?user=${otherUser.id}`} className="flex items-center gap-2 px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover" onClick={() => setShowMoreMenu(false)}>
+                    <UserIcon className="w-4 h-4" /> View Profile
+                  </Link>
+                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover w-full text-left" onClick={() => setShowMoreMenu(false)}>
+                    <VolumeX className="w-4 h-4" /> Mute
+                  </button>
+                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-theme-hover w-full text-left" onClick={() => setShowMoreMenu(false)}>
+                    <Ban className="w-4 h-4" /> Block User
+                  </button>
+                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover w-full text-left" onClick={() => setShowMoreMenu(false)}>
+                    <Trash2 className="w-4 h-4" /> Clear Chat
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </div>
 
@@ -482,12 +542,25 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
       )}>
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-0.5">
-            <motion.button className="p-2 rounded-full hover:bg-theme-hover text-xbee-primary" whileTap={{ scale: 0.9 }}>
+            <motion.button className="p-2 rounded-full hover:bg-theme-hover text-xbee-primary" whileTap={{ scale: 0.9 }} onClick={handleImageUpload} title="Send Image">
               <Image className="w-5 h-5" />
             </motion.button>
-            <motion.button className="p-2 rounded-full hover:bg-theme-hover text-xbee-primary" whileTap={{ scale: 0.9 }}>
-              <Mic className="w-5 h-5" />
-            </motion.button>
+            {!isRecording ? (
+              <motion.button className="p-2 rounded-full hover:bg-theme-hover text-xbee-primary" whileTap={{ scale: 0.9 }} onClick={startRecording} title="Voice Message">
+                <Mic className="w-5 h-5" />
+              </motion.button>
+            ) : (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-red-500/10 border border-red-500/20">
+                <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <span className="text-xs text-red-400 font-mono">{recordTime}s</span>
+                <motion.button className="p-1 rounded-full hover:bg-red-500/20 text-red-400" whileTap={{ scale: 0.9 }} onClick={() => stopRecording(false)} title="Cancel">
+                  <X className="w-3.5 h-3.5" />
+                </motion.button>
+                <motion.button className="p-1 rounded-full hover:bg-xbee-primary/20 text-xbee-primary" whileTap={{ scale: 0.9 }} onClick={() => stopRecording(true)} title="Send">
+                  <Send className="w-3.5 h-3.5" />
+                </motion.button>
+              </div>
+            )}
           </div>
           <div className="relative flex-1">
             <input
@@ -527,8 +600,11 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
           </div>
         </div>
         <div className="flex items-center gap-3 mt-2 px-2">
-          <button className="flex items-center gap-1 text-xs text-theme-tertiary hover:text-xbee-primary transition-colors">
-            <Languages className="w-3.5 h-3.5" /> Translate
+          <button
+            className={cn('flex items-center gap-1 text-xs transition-colors', translateActive ? 'text-xbee-primary font-bold' : 'text-theme-tertiary hover:text-xbee-primary')}
+            onClick={() => setTranslateActive(!translateActive)}
+          >
+            <Languages className="w-3.5 h-3.5" /> {translateActive ? 'Translating...' : 'Translate'}
           </button>
           <button
             className="flex items-center gap-1 text-xs text-theme-tertiary hover:text-xbee-secondary transition-colors"
@@ -543,6 +619,36 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
           )}
         </div>
       </div>
+
+      {/* Call Modal */}
+      <AnimatePresence>
+        {showCallModal && (
+          <motion.div className="fixed inset-0 z-[9999] bg-black/80 backdrop-blur-md flex items-center justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+            <motion.div className="text-center" initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }}>
+              <motion.div
+                className={cn('w-24 h-24 rounded-full mx-auto mb-4 overflow-hidden border-4', callState === 'ringing' ? 'border-xbee-primary' : 'border-red-500')}
+                animate={callState === 'ringing' ? { boxShadow: ['0 0 0 0 rgba(59,130,246,0.3)', '0 0 0 20px rgba(59,130,246,0)', '0 0 0 0 rgba(59,130,246,0.3)'] } : {}}
+                transition={{ duration: 1.5, repeat: Infinity }}
+              >
+                {otherUser.avatar ? <img src={otherUser.avatar} alt="" className="w-full h-full object-cover" /> :
+                  <div className="w-full h-full bg-gradient-to-br from-xbee-primary to-xbee-secondary flex items-center justify-center text-white text-3xl font-bold">{otherUser.displayName[0]}</div>
+                }
+              </motion.div>
+              <p className="text-xl font-bold text-white mb-1">{otherUser.displayName}</p>
+              <p className="text-sm text-gray-400 mb-6">
+                {callState === 'ringing' ? (showCallModal === 'video' ? '📹 Video calling...' : '📞 Calling...') : 'Call ended'}
+              </p>
+              <motion.button
+                className="w-14 h-14 rounded-full bg-red-500 flex items-center justify-center mx-auto"
+                whileTap={{ scale: 0.9 }}
+                onClick={() => { setShowCallModal(null); setCallState('ringing'); }}
+              >
+                <PhoneOff className="w-6 h-6 text-white" />
+              </motion.button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

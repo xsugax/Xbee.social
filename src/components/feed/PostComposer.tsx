@@ -17,12 +17,17 @@ interface PostComposerProps {
   onPost?: (content: string, media?: MediaAttachment[]) => void;
 }
 
+const EMOJI_SET = ['😀','😂','🥹','❤️','🔥','👏','🎉','💡','🚀','✨','😍','🤔','👀','💪','🙌','😎','🤝','💯','⭐','🎯','✅','🐝','💛','🙃','😤','🫡','🥳','💀','🤡','🫶'];
+
 export default function PostComposer({ onPost }: PostComposerProps) {
   const [content, setContent] = useState('');
   const [isFocused, setIsFocused] = useState(false);
   const [showAI, setShowAI] = useState(false);
   const [aiEnhancing, setAiEnhancing] = useState(false);
   const [mediaFiles, setMediaFiles] = useState<{ file: File; preview: string; type: 'image' | 'video' }[]>([]);
+  const [showEmoji, setShowEmoji] = useState(false);
+  const [showPoll, setShowPoll] = useState(false);
+  const [pollOptions, setPollOptions] = useState(['', '']);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -78,11 +83,73 @@ export default function PostComposer({ onPost }: PostComposerProps) {
   };
 
   const handleEnhance = () => {
+    if (!content.trim()) return;
     setAiEnhancing(true);
+
+    // Smart AI enhancement — actually rewrites the post
+    const text = content.trim();
+    const words = text.split(/\s+/);
+    const isShort = words.length < 8;
+    const isQuestion = text.endsWith('?');
+    const hasHashtag = /#\w+/.test(text);
+    const isAllCaps = text === text.toUpperCase() && text.length > 5;
+
     setTimeout(() => {
-      setContent(prev => prev + '\n\n✨ [AI Enhanced for clarity and engagement]');
+      let enhanced = text;
+
+      // Fix all-caps
+      if (isAllCaps) {
+        enhanced = text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
+      }
+
+      // Add hook to short posts
+      if (isShort && !isQuestion) {
+        const hooks = [
+          `Here's my take: ${enhanced}. What do you think?`,
+          `${enhanced} — and here's why it matters.`,
+          `Something I've been thinking about: ${enhanced}`,
+          `Hot take: ${enhanced}. Let's discuss.`,
+        ];
+        enhanced = hooks[Math.floor(Math.random() * hooks.length)];
+      }
+
+      // Enhance questions
+      if (isQuestion) {
+        const starters = [
+          `I'd love your perspective: ${enhanced}`,
+          `Genuine question for the community: ${enhanced}`,
+          `${enhanced}\n\nDrop your thoughts below 👇`,
+        ];
+        enhanced = starters[Math.floor(Math.random() * starters.length)];
+      }
+
+      // Add smart hashtags if none
+      if (!hasHashtag) {
+        const lower = text.toLowerCase();
+        const tagMap: Record<string, string[]> = {
+          'code|dev|programming|software|tech|api|bug|deploy': ['#TechTwitter', '#DevLife'],
+          'design|ui|ux|figma|css|pixel': ['#DesignInspo', '#UIUX'],
+          'ai|machine learning|gpt|neural|llm': ['#AI', '#FutureTech'],
+          'startup|business|launch|founder': ['#StartupLife', '#Entrepreneurship'],
+          'learn|study|course|tutorial|education': ['#Learning', '#GrowthMindset'],
+        };
+        for (const [pattern, tags] of Object.entries(tagMap)) {
+          if (new RegExp(pattern, 'i').test(lower)) {
+            enhanced += '\n\n' + tags.join(' ');
+            break;
+          }
+        }
+      }
+
+      // Ensure punctuation
+      const lastChar = enhanced.trim().slice(-1);
+      if (!/[.!?#]/.test(lastChar) && !hasHashtag) {
+        enhanced = enhanced.trim() + '.';
+      }
+
+      setContent(enhanced);
       setAiEnhancing(false);
-    }, 1500);
+    }, 1200);
   };
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -244,16 +311,20 @@ export default function PostComposer({ onPost }: PostComposerProps) {
                 <Film className="w-5 h-5" />
               </motion.button>
               {[
-                { icon: Mic, label: 'Voice' },
-                { icon: BarChart3, label: 'Poll' },
-                { icon: Smile, label: 'Emoji' },
-                { icon: MapPin, label: 'Location' },
-              ].map(({ icon: Icon, label }) => (
+                { icon: Mic, label: 'Voice', action: () => {} },
+                { icon: BarChart3, label: 'Poll', action: () => { setShowPoll(!showPoll); setShowEmoji(false); } },
+                { icon: Smile, label: 'Emoji', action: () => { setShowEmoji(!showEmoji); setShowPoll(false); } },
+                { icon: MapPin, label: 'Location', action: () => {
+                  const loc = '📍 Current Location';
+                  setContent(prev => prev ? prev + ' ' + loc : loc);
+                }},
+              ].map(({ icon: Icon, label, action }) => (
                 <motion.button
                   key={label}
                   className="p-2 rounded-full hover:bg-xbee-primary/10 transition-colors text-xbee-primary"
                   whileTap={{ scale: 0.9 }}
                   title={label}
+                  onClick={action}
                 >
                   <Icon className="w-5 h-5" />
                 </motion.button>
@@ -300,6 +371,45 @@ export default function PostComposer({ onPost }: PostComposerProps) {
               </motion.button>
             </div>
           </div>
+
+          {/* Emoji Picker */}
+          <AnimatePresence>
+            {showEmoji && (
+              <motion.div className="grid grid-cols-10 gap-1 py-2 border-t border-theme mt-1" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                {EMOJI_SET.map((e) => (
+                  <button key={e} className="text-xl hover:bg-theme-hover rounded p-1 transition-colors" onClick={() => { setContent(prev => prev + e); textareaRef.current?.focus(); }}>
+                    {e}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Poll Creator */}
+          <AnimatePresence>
+            {showPoll && (
+              <motion.div className="py-2 border-t border-theme mt-1 space-y-2" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                <p className="text-xs font-bold text-theme-secondary flex items-center gap-1"><BarChart3 className="w-3 h-3" /> Create Poll</p>
+                {pollOptions.map((opt, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input className="xbee-input flex-1 py-1.5 text-sm" placeholder={`Option ${i + 1}`} value={opt} onChange={(e) => { const next = [...pollOptions]; next[i] = e.target.value; setPollOptions(next); }} maxLength={80} />
+                    {pollOptions.length > 2 && <button className="text-theme-tertiary hover:text-red-400" onClick={() => setPollOptions(pollOptions.filter((_, j) => j !== i))}><X className="w-4 h-4" /></button>}
+                  </div>
+                ))}
+                <div className="flex gap-2">
+                  {pollOptions.length < 4 && <button className="text-xs text-xbee-primary hover:underline" onClick={() => setPollOptions([...pollOptions, ''])}>+ Add option</button>}
+                  <button className="text-xs text-emerald-400 hover:underline ml-auto" onClick={() => {
+                    const validOpts = pollOptions.filter(o => o.trim());
+                    if (validOpts.length >= 2) {
+                      setContent(prev => prev + (prev ? '\n\n' : '') + '📊 Poll:\n' + validOpts.map((o, i) => `${['🔵','🟢','🟡','🟠'][i]} ${o}`).join('\n'));
+                      setShowPoll(false);
+                      setPollOptions(['', '']);
+                    }
+                  }}>Add to post</button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </div>

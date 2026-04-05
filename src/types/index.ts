@@ -190,10 +190,11 @@ export interface Community {
 
 export interface Notification {
   id: string;
-  type: 'like' | 'repost' | 'reply' | 'follow' | 'mention' | 'community' | 'monetization' | 'badge' | 'streak';
+  type: 'like' | 'repost' | 'reply' | 'follow' | 'mention' | 'community' | 'monetization' | 'badge' | 'streak' | 'message' | 'trust' | 'trending' | 'comment';
   actor: User;
   content: string;
   postId?: string;
+  actionUrl?: string;
   read: boolean;
   createdAt: string;
 }

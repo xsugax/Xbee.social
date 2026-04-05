@@ -72,6 +72,78 @@ export default function TrustBadge({ score, tier, size = 'sm', showScore = false
     );
   }
 
+  // Government = Red verified badge
+  if (verification === 'government') {
+    return (
+      <motion.div
+        className={cn(
+          'inline-flex items-center gap-1',
+          showLabel && 'px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/30',
+        )}
+        whileHover={{ scale: 1.05 }}
+        title="Government / Official"
+      >
+        <VerifiedCheckmark className={sizeMap[size]} color="#EF4444" />
+        {showScore && <span className="text-[11px] font-bold text-red-400">{score}</span>}
+        {showLabel && <span className="text-[11px] font-medium text-red-400">Official</span>}
+      </motion.div>
+    );
+  }
+
+  // Business = Green verified badge
+  if (verification === 'business') {
+    return (
+      <motion.div
+        className={cn(
+          'inline-flex items-center gap-1',
+          showLabel && 'px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30',
+        )}
+        whileHover={{ scale: 1.05 }}
+        title="Verified Business"
+      >
+        <VerifiedCheckmark className={sizeMap[size]} color="#10B981" />
+        {showScore && <span className="text-[11px] font-bold text-emerald-400">{score}</span>}
+        {showLabel && <span className="text-[11px] font-medium text-emerald-400">Business</span>}
+      </motion.div>
+    );
+  }
+
+  // Celebrity = Purple verified badge
+  if (verification === 'celebrity') {
+    return (
+      <motion.div
+        className={cn(
+          'inline-flex items-center gap-1',
+          showLabel && 'px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30',
+        )}
+        whileHover={{ scale: 1.05 }}
+        title="Celebrity / Public Figure"
+      >
+        <VerifiedCheckmark className={sizeMap[size]} color="#A855F7" />
+        {showScore && <span className="text-[11px] font-bold text-purple-400">{score}</span>}
+        {showLabel && <span className="text-[11px] font-medium text-purple-400">Celebrity</span>}
+      </motion.div>
+    );
+  }
+
+  // Creator = Pink verified badge
+  if (verification === 'creator') {
+    return (
+      <motion.div
+        className={cn(
+          'inline-flex items-center gap-1',
+          showLabel && 'px-2 py-0.5 rounded-full bg-pink-500/10 border border-pink-500/30',
+        )}
+        whileHover={{ scale: 1.05 }}
+        title="Verified Creator"
+      >
+        <VerifiedCheckmark className={sizeMap[size]} color="#EC4899" />
+        {showScore && <span className="text-[11px] font-bold text-pink-400">{score}</span>}
+        {showLabel && <span className="text-[11px] font-medium text-pink-400">Creator</span>}
+      </motion.div>
+    );
+  }
+
   // Identity = Blue verified badge (like X Blue)
   if (verification === 'identity') {
     return (

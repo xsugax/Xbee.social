@@ -1,5 +1,5 @@
 export type TrustTier = 'new' | 'building' | 'established' | 'trusted' | 'authority';
-export type VerificationType = 'none' | 'identity' | 'authority';
+export type VerificationType = 'none' | 'identity' | 'authority' | 'government' | 'business' | 'celebrity' | 'creator';
 export type AICommentMode = 'casual' | 'professional' | 'funny' | 'debate' | 'supportive';
 
 export interface TrustProfile {

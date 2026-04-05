@@ -47,6 +47,15 @@ interface AppState {
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   searchResults: { posts: Post[]; users: User[]; };
+
+  // Admin (God-mode)
+  allUsers: User[];
+  addSystemUser: (user: User) => void;
+  deleteSystemUser: (userId: string) => void;
+  updateUserInSystem: (userId: string, updates: Partial<User>) => void;
+  updatePostEngagement: (postId: string, updates: Partial<{ likes: number; reposts: number; replies: number; views: number }>) => void;
+  deletePostById: (postId: string) => void;
+  setPosts: React.Dispatch<React.SetStateAction<Post[]>>;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -68,6 +77,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [allUsers, setAllUsers] = useState<User[]>(() => {
+    try {
+      const saved = localStorage.getItem('xbee_system_users');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return [defaultUser, ...mockUsers];
+  });
   const [following, setFollowing] = useState<Set<string>>(() => {
     try {
       const saved = localStorage.getItem('xbee_following');
@@ -246,6 +262,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ));
   }, []);
 
+  // Persist system users
+  useEffect(() => {
+    try { localStorage.setItem('xbee_system_users', JSON.stringify(allUsers)); } catch {}
+  }, [allUsers]);
+
+  // Admin (God-mode) functions
+  const addSystemUser = useCallback((user: User) => {
+    setAllUsers(prev => {
+      if (prev.find(u => u.id === user.id)) return prev;
+      return [...prev, user];
+    });
+  }, []);
+
+  const deleteSystemUser = useCallback((userId: string) => {
+    setAllUsers(prev => prev.filter(u => u.id !== userId));
+    // Also remove their posts
+    setPosts(prev => prev.filter(p => p.author.id !== userId));
+    // Remove from auth storage
+    try {
+      const authUsers = JSON.parse(localStorage.getItem('xbee_users') || '[]');
+      localStorage.setItem('xbee_users', JSON.stringify(authUsers.filter((u: any) => u.username !== userId)));
+    } catch {}
+  }, []);
+
+  const updateUserInSystem = useCallback((userId: string, updates: Partial<User>) => {
+    setAllUsers(prev => prev.map(u => u.id === userId ? { ...u, ...updates } : u));
+    // Update author references in posts
+    setPosts(prev => prev.map(p =>
+      p.author.id === userId ? { ...p, author: { ...p.author, ...updates } } : p
+    ));
+  }, []);
+
+  const updatePostEngagement = useCallback((postId: string, updates: Partial<{ likes: number; reposts: number; replies: number; views: number }>) => {
+    setPosts(prev => prev.map(p =>
+      p.id === postId ? { ...p, ...updates } : p
+    ));
+  }, []);
+
+  const deletePostById = useCallback((postId: string) => {
+    setPosts(prev => prev.filter(p => p.id !== postId));
+  }, []);
+
   const addNotification = useCallback((notif: any) => {
     setNotifications(prev => [{
       id: notif.id || `notif-${Date.now()}`,
@@ -276,7 +334,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         p.author.displayName.toLowerCase().includes(q) ||
         p.author.username.toLowerCase().includes(q)
       ),
-      users: mockUsers.filter(u =>
+      users: allUsers.filter(u =>
         u.displayName.toLowerCase().includes(q) ||
         u.username.toLowerCase().includes(q) ||
         u.bio.toLowerCase().includes(q)
@@ -292,6 +350,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       conversations, getMessages, sendMessage, addReply, activeConvId, setActiveConvId,
       notifications, addNotification, markNotificationRead, unreadCount,
       searchQuery, setSearchQuery, searchResults,
+      allUsers, addSystemUser, deleteSystemUser, updateUserInSystem,
+      updatePostEngagement, deletePostById, setPosts,
     }}>
       {children}
     </AppContext.Provider>

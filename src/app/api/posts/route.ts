@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+export const runtime = 'edge';
+
 // In-memory store (would be a database in production)
 const posts: any[] = [];
 

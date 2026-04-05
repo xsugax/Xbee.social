@@ -2,7 +2,6 @@
 const nextConfig = {
   images: {
     domains: ['api.dicebear.com', 'picsum.photos'],
-    unoptimized: true,
   },
 };
 

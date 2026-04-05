@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-export const runtime = 'edge';
-
 // Xbee AI conversational engine — comprehensive knowledge
 const knowledgeBase: Record<string, string[]> = {
   greeting: [

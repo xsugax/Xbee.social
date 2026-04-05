@@ -2,42 +2,48 @@
 
 import React, { useState, useRef, useMemo, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Calendar, MapPin, Link as LinkIcon,
-  Shield, Flame, Award, Edit3, Copy, Check, Users, Ticket, Camera, ArrowLeft
+  Shield, Flame, Award, Edit3, Copy, Check, Users, Ticket, Camera, ArrowLeft, X
 } from 'lucide-react';
 import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
 import TrustBadge from '@/components/trust/TrustBadge';
 import TrustScoreCard from '@/components/trust/TrustScoreCard';
 import PostCard from '@/components/feed/PostCard';
-import { currentUser, mockPosts, mockInviteCodes, mockUsers } from '@/lib/mockData';
+import { mockInviteCodes, mockUsers } from '@/lib/mockData';
 import { formatNumber, cn } from '@/lib/utils';
+import { useApp } from '@/context/AppContext';
 
 type ProfileTab = 'posts' | 'replies' | 'media' | 'likes';
 
 function ProfileContent() {
   const searchParams = useSearchParams();
   const userId = searchParams.get('user');
+  const { currentUser, posts, updateProfile, followUser, unfollowUser, isFollowing: checkFollowing } = useApp();
 
   const displayUser = useMemo(() => {
     if (!userId || userId === currentUser.id) return currentUser;
     return mockUsers.find(u => u.id === userId) || currentUser;
-  }, [userId]);
+  }, [userId, currentUser]);
 
   const isOwnProfile = displayUser.id === currentUser.id;
+  const isFollowingUser = checkFollowing ? checkFollowing(displayUser.id) : false;
 
   const [activeTab, setActiveTab] = useState<ProfileTab>('posts');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [coverImage, setCoverImage] = useState<string | null>(null);
   const [avatarImage, setAvatarImage] = useState<string | null>(displayUser.avatar || null);
-  const [isFollowing, setIsFollowing] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editName, setEditName] = useState(currentUser.displayName);
+  const [editUsername, setEditUsername] = useState(currentUser.username);
+  const [editBio, setEditBio] = useState(currentUser.bio);
   const coverInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
-  const userPosts = mockPosts.filter(p => p.author.id === displayUser.id);
-  const displayPosts = userPosts.length > 0 ? userPosts : mockPosts.slice(0, 3);
+  const userPosts = posts.filter(p => p.author.id === displayUser.id);
+  const displayPosts = userPosts;
   const activeInvites = mockInviteCodes.filter(c => c.active);
   const usedInvites = mockInviteCodes.filter(c => !c.active);
 
@@ -121,21 +127,21 @@ function ProfileContent() {
             )}
           </div>
           {isOwnProfile ? (
-            <motion.button className="xbee-button-secondary text-sm mt-16" whileTap={{ scale: 0.95 }}>
+            <motion.button className="xbee-button-secondary text-sm mt-16" whileTap={{ scale: 0.95 }} onClick={() => { setEditName(currentUser.displayName); setEditUsername(currentUser.username); setEditBio(currentUser.bio); setShowEditModal(true); }}>
               <Edit3 className="w-4 h-4" /> Edit Profile
             </motion.button>
           ) : (
             <motion.button
               className={cn(
                 'text-sm mt-16 px-5 py-2 rounded-full font-bold transition-colors',
-                isFollowing
+                isFollowingUser
                   ? 'border border-theme text-theme-primary hover:border-red-500 hover:text-red-500'
                   : 'bg-xbee-primary text-white hover:bg-xbee-primary/90'
               )}
-              onClick={() => setIsFollowing(!isFollowing)}
+              onClick={() => isFollowingUser ? unfollowUser(displayUser.id) : followUser(displayUser.id)}
               whileTap={{ scale: 0.95 }}
             >
-              {isFollowing ? 'Following' : 'Follow'}
+              {isFollowingUser ? 'Following' : 'Follow'}
             </motion.button>
           )}
         </div>
@@ -268,6 +274,94 @@ function ProfileContent() {
           </div>
         )}
       </div>
+
+      {/* Edit Profile Modal */}
+      <AnimatePresence>
+        {showEditModal && (
+          <motion.div
+            className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowEditModal(false)}
+          >
+            <motion.div
+              className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto"
+              initial={{ scale: 0.9, y: 30, opacity: 0 }}
+              animate={{ scale: 1, y: 0, opacity: 1 }}
+              exit={{ scale: 0.9, y: 30, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between p-4 border-b border-theme">
+                <h2 className="text-lg font-bold text-theme-primary">Edit Profile</h2>
+                <div className="flex items-center gap-2">
+                  <motion.button
+                    className="p-2 rounded-full hover:bg-theme-hover text-theme-tertiary"
+                    onClick={() => setShowEditModal(false)}
+                    whileTap={{ scale: 0.9 }}
+                  >
+                    <X className="w-5 h-5" />
+                  </motion.button>
+                </div>
+              </div>
+              <div className="p-4 space-y-4">
+                <div>
+                  <label className="text-xs font-bold text-theme-tertiary uppercase tracking-wider">Display Name</label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full mt-1.5 px-4 py-2.5 rounded-xl bg-theme-hover border border-theme text-theme-primary text-sm outline-none focus:border-xbee-primary transition-colors"
+                    maxLength={50}
+                    placeholder="Your display name"
+                  />
+                  <span className="text-[10px] text-theme-tertiary mt-1">{editName.length}/50</span>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-theme-tertiary uppercase tracking-wider">Username</label>
+                  <div className="relative mt-1.5">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-theme-tertiary text-sm">@</span>
+                    <input
+                      type="text"
+                      value={editUsername}
+                      onChange={(e) => setEditUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                      className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-theme-hover border border-theme text-theme-primary text-sm outline-none focus:border-xbee-primary transition-colors"
+                      maxLength={30}
+                      placeholder="username"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-theme-tertiary uppercase tracking-wider">Bio</label>
+                  <textarea
+                    value={editBio}
+                    onChange={(e) => setEditBio(e.target.value)}
+                    className="w-full mt-1.5 px-4 py-2.5 rounded-xl bg-theme-hover border border-theme text-theme-primary text-sm outline-none focus:border-xbee-primary transition-colors resize-none"
+                    rows={3}
+                    maxLength={160}
+                    placeholder="Tell the world about yourself"
+                  />
+                  <span className="text-[10px] text-theme-tertiary mt-1">{editBio.length}/160</span>
+                </div>
+                <motion.button
+                  className="w-full py-2.5 rounded-full bg-xbee-primary text-white font-bold text-sm hover:bg-xbee-primary/90 transition-colors"
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => {
+                    updateProfile({
+                      displayName: editName.trim() || currentUser.displayName,
+                      username: editUsername.trim() || currentUser.username,
+                      bio: editBio.trim(),
+                    });
+                    setShowEditModal(false);
+                  }}
+                >
+                  Save Changes
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

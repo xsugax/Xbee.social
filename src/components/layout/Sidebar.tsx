@@ -9,14 +9,14 @@ import {
   PenSquare, Shield, Crown, ShieldCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { currentUser } from '@/lib/mockData';
 import TrustBadge from '@/components/trust/TrustBadge';
+import { useApp } from '@/context/AppContext';
 
 const navItems = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/explore', label: 'Explore', icon: Search },
-  { href: '/notifications', label: 'Notifications', icon: Bell, badge: 3 },
-  { href: '/messages', label: 'Messages', icon: Mail, badge: 4 },
+  { href: '/notifications', label: 'Notifications', icon: Bell, badgeKey: 'notifications' as const },
+  { href: '/messages', label: 'Messages', icon: Mail, badgeKey: 'messages' as const },
   { href: '/communities', label: 'Communities', icon: Users },
   { href: '/profile', label: 'Profile', icon: User },
   { href: '/monetization', label: 'Monetization', icon: DollarSign },
@@ -25,6 +25,8 @@ const navItems = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { currentUser, unreadCount, conversations } = useApp();
+  const msgUnread = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
 
   return (
     <aside className="fixed left-0 top-0 h-screen w-[275px] border-r border-theme bg-theme-primary flex flex-col justify-between py-3 px-3 z-40 max-xl:w-[88px] max-lg:hidden">
@@ -60,9 +62,14 @@ export default function Sidebar() {
                 >
                   <div className="relative">
                     <Icon className="w-6 h-6" strokeWidth={isActive ? 2.5 : 1.5} />
-                    {item.badge && (
+                    {item.badgeKey === 'notifications' && unreadCount > 0 && (
                       <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-xbee-primary text-white text-[11px] font-bold rounded-full flex items-center justify-center px-1">
-                        {item.badge}
+                        {unreadCount}
+                      </span>
+                    )}
+                    {item.badgeKey === 'messages' && msgUnread > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] bg-xbee-primary text-white text-[11px] font-bold rounded-full flex items-center justify-center px-1">
+                        {msgUnread}
                       </span>
                     )}
                   </div>

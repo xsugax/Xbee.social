@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { LayoutProvider } from '@/context/LayoutContext';
+import { AppProvider } from '@/context/AppContext';
 import LayoutShell from '@/components/layout/LayoutShell';
 import AppShell from '@/components/shell/AppShell';
 
@@ -21,11 +22,13 @@ export default function RootLayout({
       <body className="bg-theme-primary text-theme-primary min-h-screen">
         <ThemeProvider>
           <LayoutProvider>
-            <AppShell>
-              <LayoutShell>
-                {children}
-              </LayoutShell>
-            </AppShell>
+            <AppProvider>
+              <AppShell>
+                <LayoutShell>
+                  {children}
+                </LayoutShell>
+              </AppShell>
+            </AppProvider>
           </LayoutProvider>
         </ThemeProvider>
       </body>

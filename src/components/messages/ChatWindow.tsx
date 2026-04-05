@@ -12,7 +12,7 @@ import Avatar from '@/components/ui/Avatar';
 import TrustBadge from '@/components/trust/TrustBadge';
 import { Message, User, Conversation } from '@/types';
 import { cn, formatTimeAgo } from '@/lib/utils';
-import { currentUser, mockMessages } from '@/lib/mockData';
+import { useApp } from '@/context/AppContext';
 import Link from 'next/link';
 
 interface ChatWindowProps {
@@ -29,7 +29,9 @@ const GHOST_TIMERS = [
 ];
 
 export default function ChatWindow({ otherUser, conversation, onBack }: ChatWindowProps) {
-  const [messages, setMessages] = useState<Message[]>(mockMessages);
+  const { currentUser, getMessages, sendMessage: sendGlobalMsg, addReply } = useApp();
+  const convId = conversation?.id || '';
+  const messages = getMessages(convId);
   const [input, setInput] = useState('');
   const [showAI, setShowAI] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
@@ -51,23 +53,9 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
   const handleSend = () => {
     if (!input.trim()) return;
 
-    const newMsg: Message = {
-      id: `msg-${Date.now()}`,
-      senderId: currentUser.id,
-      content: input,
-      type: 'text',
-      createdAt: new Date().toISOString(),
-      read: false,
-      encrypted: true,
-      ...(ghostMode ? {
-        ghost: {
-          enabled: true,
-          expiresIn: ghostTimer,
-          expiresAt: new Date(Date.now() + ghostTimer * 1000).toISOString(),
-        },
-      } : {}),
-    };
-    setMessages([...messages, newMsg]);
+    const ghostConfig = ghostMode ? { enabled: true, expiresIn: ghostTimer } : undefined;
+    sendGlobalMsg(convId, input, ghostConfig);
+    const sentInput = input;
     setInput('');
 
     setIsTyping(true);
@@ -76,7 +64,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
     fetch('/api/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: input }),
+      body: JSON.stringify({ message: sentInput }),
     })
       .then(res => res.json())
       .then(data => {
@@ -90,7 +78,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
           read: false,
           encrypted: true,
         };
-        setMessages(prev => [...prev, reply]);
+        addReply(convId, reply);
         if (data.suggestions) {
           setDynamicSuggestions(data.suggestions);
         }
@@ -98,9 +86,9 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
       .catch(() => {
         setIsTyping(false);
         const replies = [
-          "That's a great point! I'd love to explore that further. 💫",
+          "That's a great point! I'd love to explore that further.",
           "Interesting perspective! Let me think on that and get back to you.",
-          "Love this idea! Can we jam on it later this week? 🚀",
+          "Love this idea! Can we jam on it later this week?",
           "Thanks for sharing — really resonates with what I've been working on.",
           "100% agree. The industry is moving fast and we need to stay ahead.",
         ];
@@ -113,7 +101,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
           read: false,
           encrypted: true,
         };
-        setMessages(prev => [...prev, reply]);
+        addReply(convId, reply);
       });
   };
 

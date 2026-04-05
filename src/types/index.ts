@@ -77,6 +77,8 @@ export interface Comment {
   createdAt: string;
   likes: number;
   liked: boolean;
+  replies?: Comment[];
+  replyTo?: string;
 }
 
 export interface Post {

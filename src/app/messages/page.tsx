@@ -5,14 +5,18 @@ import { motion } from 'framer-motion';
 import { Search, Settings, PenSquare, Mail } from 'lucide-react';
 import ChatList from '@/components/messages/ChatList';
 import ChatWindow from '@/components/messages/ChatWindow';
-import { mockConversations, currentUser } from '@/lib/mockData';
 import { cn } from '@/lib/utils';
+import { useApp } from '@/context/AppContext';
 
 export default function MessagesPage() {
-  const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const { conversations, currentUser, activeConvId, setActiveConvId } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
 
-  const activeConv = mockConversations.find(c => c.id === activeConvId);
+  const filteredConvs = searchQuery.trim()
+    ? conversations.filter(c => c.participants.some(p => p.displayName.toLowerCase().includes(searchQuery.toLowerCase())))
+    : conversations;
+
+  const activeConv = conversations.find(c => c.id === activeConvId);
   const otherUser = activeConv?.participants.find(p => p.id !== currentUser.id);
 
   return (
@@ -54,7 +58,7 @@ export default function MessagesPage() {
         </div>
         <div className="flex-1 overflow-y-auto">
           <ChatList
-            conversations={mockConversations}
+            conversations={filteredConvs}
             activeId={activeConvId ?? undefined}
             onSelect={setActiveConvId}
           />

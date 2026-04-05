@@ -1,16 +1,30 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, TrendingUp, ArrowUp, ArrowDown, Minus, Sparkles, Shield, PanelRightClose, PanelRightOpen } from 'lucide-react';
+import { Search, TrendingUp, ArrowUp, ArrowDown, Minus, Sparkles, Shield, PanelRightClose, PanelRightOpen, X } from 'lucide-react';
 import { formatNumber, cn } from '@/lib/utils';
-import { mockTrends, mockUsers, currentUser } from '@/lib/mockData';
+import { mockTrends, mockUsers } from '@/lib/mockData';
 import TrustBadge from '@/components/trust/TrustBadge';
 import TrustScoreCard from '@/components/trust/TrustScoreCard';
+import Avatar from '@/components/ui/Avatar';
 import { useLayout } from '@/context/LayoutContext';
+import { useApp } from '@/context/AppContext';
+import Link from 'next/link';
 
 export default function RightSidebar() {
   const { rightSidebarCollapsed, toggleRightSidebar } = useLayout();
+  const { currentUser, posts, followUser, unfollowUser, isFollowing } = useApp();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const searchResults = searchQuery.trim() ? {
+    users: mockUsers.filter(u => u.displayName.toLowerCase().includes(searchQuery.toLowerCase()) || u.username.toLowerCase().includes(searchQuery.toLowerCase())),
+    posts: posts.filter(p => p.content.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 3),
+  } : null;
+
+  // Suggest users that currentUser is NOT following
+  const suggestedUsers = mockUsers.filter(u => u.id !== currentUser.id && !isFollowing(u.id)).slice(0, 3);
+  const fallbackUsers = suggestedUsers.length === 0 ? mockUsers.filter(u => u.id !== currentUser.id).slice(0, 3) : suggestedUsers;
 
   return (
     <>
@@ -51,9 +65,56 @@ export default function RightSidebar() {
           <input
             type="text"
             placeholder="Search Xbee"
-            className="xbee-input pl-11 py-2.5 rounded-full bg-theme-tertiary"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="xbee-input pl-11 pr-9 py-2.5 rounded-full bg-theme-tertiary"
           />
+          {searchQuery && (
+            <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-theme-hover" onClick={() => setSearchQuery('')}>
+              <X className="w-3.5 h-3.5 text-theme-tertiary" />
+            </button>
+          )}
         </div>
+        {/* Quick search results dropdown */}
+        <AnimatePresence>
+          {searchResults && (searchResults.users.length > 0 || searchResults.posts.length > 0) && (
+            <motion.div
+              className="absolute left-0 right-0 mt-1 mx-2 glass-card max-h-[300px] overflow-y-auto z-50"
+              initial={{ opacity: 0, y: -5 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -5 }}
+            >
+              {searchResults.users.length > 0 && (
+                <div>
+                  <div className="px-3 py-2 text-[10px] font-bold text-theme-tertiary uppercase tracking-wider">People</div>
+                  {searchResults.users.slice(0, 3).map((user) => (
+                    <Link key={user.id} href={`/profile?user=${user.id}`} className="flex items-center gap-2 px-3 py-2 hover:bg-theme-hover transition-colors" onClick={() => setSearchQuery('')}>
+                      <Avatar name={user.displayName} src={user.avatar} size="sm" />
+                      <div className="flex-1 min-w-0">
+                        <span className="font-bold text-xs text-theme-primary truncate block">{user.displayName}</span>
+                        <span className="text-[10px] text-theme-tertiary">@{user.username}</span>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )}
+              {searchResults.posts.length > 0 && (
+                <div>
+                  <div className="px-3 py-2 text-[10px] font-bold text-theme-tertiary uppercase tracking-wider border-t border-theme">Posts</div>
+                  {searchResults.posts.map((post) => (
+                    <div key={post.id} className="px-3 py-2 hover:bg-theme-hover transition-colors cursor-pointer">
+                      <p className="text-xs text-theme-primary line-clamp-2">{post.content}</p>
+                      <span className="text-[10px] text-theme-tertiary">by @{post.author.username}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <Link href="/explore" className="block px-3 py-2 text-xs text-xbee-primary hover:bg-theme-hover text-center border-t border-theme" onClick={() => setSearchQuery('')}>
+                See all results
+              </Link>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Your Trust Score (compact) */}
@@ -103,7 +164,7 @@ export default function RightSidebar() {
         <div className="px-4 py-3 border-b border-theme">
           <h2 className="text-xl font-bold text-theme-primary">Who to follow</h2>
         </div>
-        {mockUsers.slice(0, 3).map((user, idx) => (
+        {fallbackUsers.map((user, idx) => (
           <motion.div
             key={user.id}
             className="flex items-center gap-3 px-4 py-3 hover:bg-theme-hover transition-colors cursor-pointer"
@@ -111,22 +172,30 @@ export default function RightSidebar() {
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: idx * 0.05 }}
           >
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-xbee-secondary to-xbee-accent flex items-center justify-center text-white font-bold text-sm shrink-0">
-              {user.displayName.charAt(0)}
-            </div>
+            <Link href={`/profile?user=${user.id}`} className="shrink-0">
+              <Avatar name={user.displayName} src={user.avatar} size="md" />
+            </Link>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1">
-                <span className="font-bold text-sm text-theme-primary truncate">{user.displayName}</span>
-                <TrustBadge score={user.trust.score} tier={user.trust.tier} size="sm" verification={user.verification} />
-              </div>
-              <span className="text-sm text-theme-secondary">@{user.username}</span>
+              <Link href={`/profile?user=${user.id}`}>
+                <div className="flex items-center gap-1">
+                  <span className="font-bold text-sm text-theme-primary truncate">{user.displayName}</span>
+                  <TrustBadge score={user.trust.score} tier={user.trust.tier} size="sm" verification={user.verification} />
+                </div>
+                <span className="text-sm text-theme-secondary">@{user.username}</span>
+              </Link>
             </div>
             <motion.button
-              className="xbee-button-secondary text-sm px-4 py-1.5"
+              className={cn(
+                'text-sm px-4 py-1.5 rounded-full font-bold transition-colors',
+                isFollowing(user.id)
+                  ? 'border border-theme text-theme-primary hover:border-red-500 hover:text-red-500'
+                  : 'bg-xbee-primary text-white hover:bg-xbee-primary/90'
+              )}
+              onClick={() => isFollowing(user.id) ? unfollowUser(user.id) : followUser(user.id)}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
-              Follow
+              {isFollowing(user.id) ? 'Following' : 'Follow'}
             </motion.button>
           </motion.div>
         ))}

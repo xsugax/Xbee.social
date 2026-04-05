@@ -6,17 +6,20 @@ import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
 import { Home, Search, Bell, Mail, User, Feather } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useApp } from '@/context/AppContext';
 
 const mobileNavItems = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/explore', label: 'Explore', icon: Search },
-  { href: '/notifications', label: 'Notifications', icon: Bell, badge: 3 },
-  { href: '/messages', label: 'Messages', icon: Mail, badge: 4 },
+  { href: '/notifications', label: 'Notifications', icon: Bell, badgeKey: 'notifications' as const },
+  { href: '/messages', label: 'Messages', icon: Mail, badgeKey: 'messages' as const },
   { href: '/profile', label: 'Profile', icon: User },
 ];
 
 export default function MobileNav() {
   const pathname = usePathname();
+  const { unreadCount, conversations } = useApp();
+  const msgUnread = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
 
   const scrollToComposer = () => {
     const composer = document.querySelector('textarea[placeholder="What\'s buzzing?"]');
@@ -55,9 +58,14 @@ export default function MobileNav() {
                   )}
                   strokeWidth={isActive ? 2.5 : 1.5}
                 />
-                {item.badge && (
+                {item.badgeKey === 'notifications' && unreadCount > 0 && (
                   <span className="absolute top-1.5 right-1.5 min-w-[16px] h-[16px] bg-xbee-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center px-0.5">
-                    {item.badge}
+                    {unreadCount}
+                  </span>
+                )}
+                {item.badgeKey === 'messages' && msgUnread > 0 && (
+                  <span className="absolute top-1.5 right-1.5 min-w-[16px] h-[16px] bg-xbee-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center px-0.5">
+                    {msgUnread}
                   </span>
                 )}
               </Link>

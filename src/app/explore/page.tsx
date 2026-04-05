@@ -1,11 +1,15 @@
 'use client';
 
-import React, { useState } from 'react';
-import { motion } from 'framer-motion';
-import { Search, TrendingUp, Hash, Sparkles, Users, Zap, Flame } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Search, TrendingUp, Hash, Sparkles, Users, Zap, Flame, X, UserPlus } from 'lucide-react';
 import PostCard from '@/components/feed/PostCard';
-import { mockPosts, mockTrends, mockCommunities } from '@/lib/mockData';
-import { formatNumber } from '@/lib/utils';
+import { mockTrends, mockUsers } from '@/lib/mockData';
+import { formatNumber, cn } from '@/lib/utils';
+import { useApp } from '@/context/AppContext';
+import Avatar from '@/components/ui/Avatar';
+import TrustBadge from '@/components/trust/TrustBadge';
+import Link from 'next/link';
 
 type ExploreTab = 'trending' | 'news' | 'tech' | 'entertainment' | 'sports';
 
@@ -18,8 +22,28 @@ const tabs: { id: ExploreTab; label: string }[] = [
 ];
 
 export default function ExplorePage() {
+  const { posts, followUser, unfollowUser, isFollowing, currentUser } = useApp();
   const [activeTab, setActiveTab] = useState<ExploreTab>('trending');
   const [searchQuery, setSearchQuery] = useState('');
+
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return null;
+    const q = searchQuery.toLowerCase();
+    return {
+      users: mockUsers.filter(u =>
+        u.displayName.toLowerCase().includes(q) ||
+        u.username.toLowerCase().includes(q) ||
+        u.bio.toLowerCase().includes(q)
+      ),
+      posts: posts.filter(p =>
+        p.content.toLowerCase().includes(q) ||
+        p.author.displayName.toLowerCase().includes(q) ||
+        p.author.username.toLowerCase().includes(q)
+      ),
+    };
+  }, [searchQuery, posts]);
+
+  const hasResults = searchResults && (searchResults.users.length > 0 || searchResults.posts.length > 0);
 
   return (
     <div>
@@ -31,94 +55,167 @@ export default function ExplorePage() {
             <input
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search Xbee"
-              className="xbee-input pl-11 rounded-full"
+              placeholder="Search Xbee — people, posts, topics..."
+              className="xbee-input pl-11 pr-9 rounded-full"
             />
+            {searchQuery && (
+              <button className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-theme-hover" onClick={() => setSearchQuery('')}>
+                <X className="w-3.5 h-3.5 text-theme-tertiary" />
+              </button>
+            )}
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex overflow-x-auto scrollbar-hide border-b border-theme">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              className="flex-shrink-0 px-5 py-3 relative transition-colors hover:bg-theme-hover"
-              onClick={() => setActiveTab(tab.id)}
-            >
-              <span className={`text-sm font-medium ${
-                activeTab === tab.id ? 'text-theme-primary font-bold' : 'text-theme-tertiary'
-              }`}>
-                {tab.label}
-              </span>
-              {activeTab === tab.id && (
-                <motion.div
-                  className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-xbee-primary rounded-full"
-                  layoutId="exploreTab"
-                />
-              )}
-            </button>
-          ))}
-        </div>
+        {/* Only show tabs when NOT searching */}
+        {!searchQuery && (
+          <div className="flex overflow-x-auto scrollbar-hide border-b border-theme">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                className="flex-shrink-0 px-5 py-3 relative transition-colors hover:bg-theme-hover"
+                onClick={() => setActiveTab(tab.id)}
+              >
+                <span className={`text-sm font-medium ${
+                  activeTab === tab.id ? 'text-theme-primary font-bold' : 'text-theme-tertiary'
+                }`}>
+                  {tab.label}
+                </span>
+                {activeTab === tab.id && (
+                  <motion.div
+                    className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-xbee-primary rounded-full"
+                    layoutId="exploreTab"
+                  />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Featured Topics */}
-      <div className="p-4">
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { title: 'AI Revolution', icon: Sparkles, posts: '245K', gradient: 'from-xbee-primary to-xbee-secondary' },
-            { title: 'Creator Economy', icon: Zap, posts: '89K', gradient: 'from-xbee-secondary to-xbee-accent' },
-            { title: 'Open Source', icon: Users, posts: '156K', gradient: 'from-emerald-500 to-cyan-500' },
-            { title: 'Hot Debates', icon: Flame, posts: '312K', gradient: 'from-orange-500 to-pink-500' },
-          ].map(({ title, icon: Icon, posts, gradient }) => (
-            <motion.div
-              key={title}
-              className={`p-4 rounded-2xl bg-gradient-to-br ${gradient} cursor-pointer relative overflow-hidden`}
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <div className="absolute top-2 right-2 opacity-20">
-                <Icon className="w-16 h-16 text-white" />
+      {/* Search Results */}
+      {searchQuery && (
+        <div>
+          {searchResults?.users && searchResults.users.length > 0 && (
+            <div className="border-b border-theme">
+              <div className="px-4 py-3 flex items-center gap-2">
+                <Users className="w-4 h-4 text-xbee-primary" />
+                <span className="text-sm font-bold text-theme-primary">People</span>
+                <span className="text-xs text-theme-tertiary">({searchResults.users.length})</span>
               </div>
-              <Icon className="w-6 h-6 text-white mb-2" />
-              <h3 className="text-white font-bold text-lg">{title}</h3>
-              <p className="text-white/70 text-sm">{posts} posts</p>
-            </motion.div>
-          ))}
-        </div>
-      </div>
-
-      {/* Trending Topics */}
-      <div className="border-t border-theme">
-        <div className="px-4 py-3 flex items-center gap-2">
-          <TrendingUp className="w-5 h-5 text-xbee-primary" />
-          <h2 className="text-lg font-bold text-theme-primary">Trending Topics</h2>
-        </div>
-        {mockTrends.map((trend, idx) => (
-          <motion.div
-            key={trend.id}
-            className="px-4 py-3 hover:bg-theme-hover transition-colors cursor-pointer border-b border-theme"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: idx * 0.05 }}
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-theme-tertiary">{idx + 1} · {trend.category}</span>
+              {searchResults.users.slice(0, 5).map((user) => (
+                <Link key={user.id} href={`/profile?user=${user.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-theme-hover transition-colors">
+                  <Avatar name={user.displayName} src={user.avatar} size="md" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-sm text-theme-primary truncate">{user.displayName}</span>
+                      <TrustBadge score={user.trust.score} tier={user.trust.tier} size="sm" verification={user.verification} />
+                    </div>
+                    <p className="text-xs text-theme-tertiary truncate">@{user.username}</p>
+                    <p className="text-xs text-theme-secondary mt-0.5 line-clamp-1">{user.bio}</p>
+                  </div>
+                  {user.id !== currentUser.id && (
+                    <motion.button
+                      className={cn(
+                        'px-3 py-1.5 rounded-full text-xs font-bold transition-colors shrink-0',
+                        isFollowing(user.id)
+                          ? 'border border-theme text-theme-primary hover:border-red-500 hover:text-red-500'
+                          : 'bg-xbee-primary text-white hover:bg-xbee-primary/90'
+                      )}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); isFollowing(user.id) ? unfollowUser(user.id) : followUser(user.id); }}
+                      whileTap={{ scale: 0.9 }}
+                    >
+                      {isFollowing(user.id) ? 'Following' : 'Follow'}
+                    </motion.button>
+                  )}
+                </Link>
+              ))}
             </div>
-            <p className="font-bold text-theme-primary mt-0.5 flex items-center gap-2">
-              <Hash className="w-4 h-4 text-xbee-primary" />
-              {trend.name}
-            </p>
-            <p className="text-sm text-theme-tertiary mt-0.5">{formatNumber(trend.postCount)} posts</p>
-          </motion.div>
-        ))}
-      </div>
+          )}
+          {searchResults?.posts && searchResults.posts.length > 0 && (
+            <div>
+              <div className="px-4 py-3 flex items-center gap-2 border-b border-theme">
+                <Hash className="w-4 h-4 text-xbee-primary" />
+                <span className="text-sm font-bold text-theme-primary">Posts</span>
+                <span className="text-xs text-theme-tertiary">({searchResults.posts.length})</span>
+              </div>
+              {searchResults.posts.slice(0, 10).map((post, index) => (
+                <PostCard key={post.id} post={post} index={index} />
+              ))}
+            </div>
+          )}
+          {searchQuery && !hasResults && (
+            <div className="py-16 text-center">
+              <Search className="w-12 h-12 text-theme-tertiary mx-auto mb-3 opacity-30" />
+              <p className="text-theme-tertiary font-medium">No results for &ldquo;{searchQuery}&rdquo;</p>
+              <p className="text-xs text-theme-tertiary mt-1">Try a different search term</p>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Trending Posts */}
-      <div className="border-t border-theme pt-1">
-        {mockPosts.slice(0, 3).map((post, index) => (
-          <PostCard key={post.id} post={post} index={index} />
-        ))}
-      </div>
+      {/* Default explore content (hidden during search) */}
+      {!searchQuery && (
+        <>
+          {/* Featured Topics */}
+          <div className="p-4">
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                { title: 'AI Revolution', icon: Sparkles, posts: '245K', gradient: 'from-xbee-primary to-xbee-secondary' },
+                { title: 'Creator Economy', icon: Zap, posts: '89K', gradient: 'from-xbee-secondary to-xbee-accent' },
+                { title: 'Open Source', icon: Users, posts: '156K', gradient: 'from-emerald-500 to-cyan-500' },
+                { title: 'Hot Debates', icon: Flame, posts: '312K', gradient: 'from-orange-500 to-pink-500' },
+              ].map(({ title, icon: Icon, posts: postCount, gradient }) => (
+                <motion.div
+                  key={title}
+                  className={`p-4 rounded-2xl bg-gradient-to-br ${gradient} cursor-pointer relative overflow-hidden`}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  <div className="absolute top-2 right-2 opacity-20">
+                    <Icon className="w-16 h-16 text-white" />
+                  </div>
+                  <Icon className="w-6 h-6 text-white mb-2" />
+                  <h3 className="text-white font-bold text-lg">{title}</h3>
+                  <p className="text-white/70 text-sm">{postCount} posts</p>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+
+          {/* Trending Topics */}
+          <div className="border-t border-theme">
+            <div className="px-4 py-3 flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-xbee-primary" />
+              <h2 className="text-lg font-bold text-theme-primary">Trending Topics</h2>
+            </div>
+            {mockTrends.map((trend, idx) => (
+              <motion.div
+                key={trend.id}
+                className="px-4 py-3 hover:bg-theme-hover transition-colors cursor-pointer border-b border-theme"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-theme-tertiary">{idx + 1} · {trend.category}</span>
+                </div>
+                <p className="font-bold text-theme-primary mt-0.5 flex items-center gap-2">
+                  <Hash className="w-4 h-4 text-xbee-primary" />
+                  {trend.name}
+                </p>
+                <p className="text-sm text-theme-tertiary mt-0.5">{formatNumber(trend.postCount)} posts</p>
+              </motion.div>
+            ))}
+          </div>
+
+          {/* Trending Posts — from AppContext */}
+          <div className="border-t border-theme pt-1">
+            {posts.slice(0, 3).map((post, index) => (
+              <PostCard key={post.id} post={post} index={index} />
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

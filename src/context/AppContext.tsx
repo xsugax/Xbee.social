@@ -33,6 +33,7 @@ interface AppState {
 
   // Notifications
   notifications: Notification[];
+  addNotification: (notif: any) => void;
   markNotificationRead: (id: string) => void;
   unreadCount: number;
 
@@ -193,6 +194,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ));
   }, []);
 
+  const addNotification = useCallback((notif: any) => {
+    setNotifications(prev => [{
+      id: notif.id || `notif-${Date.now()}`,
+      type: notif.type || 'like',
+      content: notif.content || '',
+      createdAt: new Date().toISOString(),
+      read: false,
+      actor: notif.actor || { id: 'system', displayName: notif.content?.split(' ')?.[0] || 'Xbee', username: 'xbee', avatar: notif.avatar || '', bio: '', verified: false, trust: { score: 100, tier: 'established' as const }, verification: 'none' as const },
+      actionUrl: notif.actionUrl,
+    }, ...prev]);
+  }, []);
+
   const markNotificationRead = useCallback((id: string) => {
     setNotifications(prev => prev.map(n =>
       n.id === id ? { ...n, read: true } : n
@@ -225,7 +238,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       posts, addPost, likePost, repostPost, bookmarkPost,
       followUser, unfollowUser, isFollowing: isFollowingUser, following,
       conversations, getMessages, sendMessage, addReply, activeConvId, setActiveConvId,
-      notifications, markNotificationRead, unreadCount,
+      notifications, addNotification, markNotificationRead, unreadCount,
       searchQuery, setSearchQuery, searchResults,
     }}>
       {children}

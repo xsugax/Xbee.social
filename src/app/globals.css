@@ -1,0 +1,186 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
+@layer base {
+  * {
+    @apply border-xbee-dark-400;
+  }
+
+  body {
+    @apply font-sans antialiased;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-xbee-dark-400 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-xbee-dark-300;
+  }
+
+  /* Dark Theme (default) */
+  [data-theme='dark'] {
+    --bg-primary: #0A0A0F;
+    --bg-secondary: #111118;
+    --bg-tertiary: #16161F;
+    --bg-elevated: #1C1C28;
+    --bg-hover: #252535;
+    --text-primary: #F7F9FA;
+    --text-secondary: #AAB8C2;
+    --text-tertiary: #6B7280;
+    --border: #252535;
+    --glass-bg: rgba(17, 17, 24, 0.8);
+    --glass-border: rgba(255, 255, 255, 0.06);
+  }
+
+  /* AMOLED Theme */
+  [data-theme='amoled'] {
+    --bg-primary: #000000;
+    --bg-secondary: #050508;
+    --bg-tertiary: #0A0A0F;
+    --bg-elevated: #111118;
+    --bg-hover: #1C1C28;
+    --text-primary: #FFFFFF;
+    --text-secondary: #AAB8C2;
+    --text-tertiary: #6B7280;
+    --border: #1C1C28;
+    --glass-bg: rgba(0, 0, 0, 0.9);
+    --glass-border: rgba(255, 255, 255, 0.04);
+  }
+
+  /* Light Theme */
+  [data-theme='light'] {
+    --bg-primary: #FFFFFF;
+    --bg-secondary: #F7F9FA;
+    --bg-tertiary: #EFF3F4;
+    --bg-elevated: #FFFFFF;
+    --bg-hover: #E1E8ED;
+    --text-primary: #0F1419;
+    --text-secondary: #536471;
+    --text-tertiary: #8899A6;
+    --border: #E1E8ED;
+    --glass-bg: rgba(255, 255, 255, 0.8);
+    --glass-border: rgba(0, 0, 0, 0.06);
+  }
+}
+
+@layer components {
+  .bg-theme-primary { background-color: var(--bg-primary); }
+  .bg-theme-secondary { background-color: var(--bg-secondary); }
+  .bg-theme-tertiary { background-color: var(--bg-tertiary); }
+  .bg-theme-elevated { background-color: var(--bg-elevated); }
+  .bg-theme-hover { background-color: var(--bg-hover); }
+  .text-theme-primary { color: var(--text-primary); }
+  .text-theme-secondary { color: var(--text-secondary); }
+  .text-theme-tertiary { color: var(--text-tertiary); }
+  .border-theme { border-color: var(--border); }
+
+  .glass {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+  }
+
+  .glass-card {
+    @apply glass rounded-2xl;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  }
+
+  .xbee-button {
+    @apply inline-flex items-center justify-center gap-2 px-5 py-2.5
+           rounded-full font-semibold text-sm
+           transition-all duration-200 ease-out
+           active:scale-95 disabled:opacity-50 disabled:pointer-events-none;
+  }
+
+  .xbee-button-primary {
+    @apply xbee-button bg-xbee-primary text-white
+           hover:bg-blue-500 shadow-glow;
+  }
+
+  .xbee-button-secondary {
+    @apply xbee-button border border-theme text-theme-primary
+           hover:bg-theme-hover;
+  }
+
+  .xbee-button-accent {
+    @apply xbee-button bg-xbee-secondary text-white
+           hover:opacity-90 shadow-glow-purple;
+  }
+
+  .xbee-input {
+    @apply w-full px-4 py-3 rounded-xl
+           bg-theme-tertiary text-theme-primary
+           border border-theme
+           placeholder:text-theme-tertiary
+           focus:outline-none focus:ring-2 focus:ring-xbee-primary/50 focus:border-xbee-primary
+           transition-all duration-200;
+  }
+
+  .sidebar-link {
+    @apply flex items-center gap-4 px-4 py-3 rounded-full
+           text-theme-primary text-xl font-normal
+           transition-all duration-200
+           hover:bg-theme-hover;
+  }
+
+  .sidebar-link-active {
+    @apply sidebar-link font-bold;
+  }
+
+  .post-action {
+    @apply flex items-center gap-1.5 text-theme-tertiary
+           hover:text-xbee-primary transition-colors duration-200
+           cursor-pointer;
+  }
+
+  .badge-verified {
+    @apply inline-flex items-center justify-center w-5 h-5
+           bg-xbee-primary rounded-full text-white;
+  }
+
+  .trend-card {
+    @apply px-4 py-3 hover:bg-theme-hover transition-colors duration-200 cursor-pointer;
+  }
+
+  .notification-dot {
+    @apply absolute -top-0.5 -right-0.5 w-2.5 h-2.5
+           bg-xbee-primary rounded-full
+           animate-pulse-soft;
+  }
+
+  .shimmer {
+    @apply bg-gradient-to-r from-transparent via-white/5 to-transparent
+           bg-[length:200%_100%] animate-shimmer;
+  }
+}
+
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r
+           from-xbee-primary to-xbee-secondary;
+  }
+
+  .text-gradient-accent {
+    @apply bg-clip-text text-transparent bg-gradient-to-r
+           from-xbee-secondary to-xbee-accent;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, TrendingUp, Hash, Sparkles, Users, Zap, Flame, X, UserPlus } from 'lucide-react';
 import PostCard from '@/components/feed/PostCard';
@@ -25,6 +25,8 @@ export default function ExplorePage() {
   const { posts, followUser, unfollowUser, isFollowing, currentUser } = useApp();
   const [activeTab, setActiveTab] = useState<ExploreTab>('trending');
   const [searchQuery, setSearchQuery] = useState('');
+  const [visibleUsers, setVisibleUsers] = useState(5);
+  const [visiblePosts, setVisiblePosts] = useState(10);
 
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return null;
@@ -44,6 +46,12 @@ export default function ExplorePage() {
   }, [searchQuery, posts]);
 
   const hasResults = searchResults && (searchResults.users.length > 0 || searchResults.posts.length > 0);
+
+  // Reset pagination when search query changes
+  useEffect(() => {
+    setVisibleUsers(5);
+    setVisiblePosts(10);
+  }, [searchQuery]);
 
   return (
     <div>
@@ -102,7 +110,7 @@ export default function ExplorePage() {
                 <span className="text-sm font-bold text-theme-primary">People</span>
                 <span className="text-xs text-theme-tertiary">({searchResults.users.length})</span>
               </div>
-              {searchResults.users.slice(0, 5).map((user) => (
+              {searchResults.users.slice(0, visibleUsers).map((user) => (
                 <Link key={user.id} href={`/profile?user=${user.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-theme-hover transition-colors">
                   <Avatar name={user.displayName} src={user.avatar} size="md" />
                   <div className="flex-1 min-w-0">
@@ -129,6 +137,11 @@ export default function ExplorePage() {
                   )}
                 </Link>
               ))}
+              {searchResults.users.length > visibleUsers && (
+                <button className="w-full py-2.5 text-sm font-medium text-xbee-primary hover:bg-theme-hover transition-colors border-t border-theme" onClick={() => setVisibleUsers(prev => prev + 5)}>
+                  Show more people ({searchResults.users.length - visibleUsers} remaining)
+                </button>
+              )}
             </div>
           )}
           {searchResults?.posts && searchResults.posts.length > 0 && (
@@ -138,9 +151,14 @@ export default function ExplorePage() {
                 <span className="text-sm font-bold text-theme-primary">Posts</span>
                 <span className="text-xs text-theme-tertiary">({searchResults.posts.length})</span>
               </div>
-              {searchResults.posts.slice(0, 10).map((post, index) => (
+              {searchResults.posts.slice(0, visiblePosts).map((post, index) => (
                 <PostCard key={post.id} post={post} index={index} />
               ))}
+              {searchResults.posts.length > visiblePosts && (
+                <button className="w-full py-2.5 text-sm font-medium text-xbee-primary hover:bg-theme-hover transition-colors border-t border-theme" onClick={() => setVisiblePosts(prev => prev + 10)}>
+                  Show more posts ({searchResults.posts.length - visiblePosts} remaining)
+                </button>
+              )}
             </div>
           )}
           {searchQuery && !hasResults && (

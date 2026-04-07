@@ -118,7 +118,7 @@ export default function MessagesPage() {
       {/* New Message Modal */}
       <AnimatePresence>
         {showNewMsg && (
-          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-start justify-center pt-[10vh] p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowNewMsg(false)}>
+          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-start justify-center pt-[10vh] p-4" role="dialog" aria-modal="true" aria-label="New message" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowNewMsg(false)}>
             <motion.div className="glass-card w-full max-w-md max-h-[70vh] flex flex-col" initial={{ scale: 0.95, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: -20 }} onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-theme shrink-0">
                 <h3 className="text-lg font-bold text-theme-primary">New Message</h3>

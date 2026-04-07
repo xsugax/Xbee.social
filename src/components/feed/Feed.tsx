@@ -9,6 +9,31 @@ import { mockUsers } from '@/lib/mockData';
 import { Post, FeedMode } from '@/types';
 import { useApp } from '@/context/AppContext';
 import { generateId, cn } from '@/lib/utils';
+import { useReducedMotion } from '@/lib/useReducedMotion';
+
+function PostSkeleton() {
+  return (
+    <div className="px-4 py-4 border-b border-theme animate-pulse">
+      <div className="flex gap-3">
+        <div className="w-10 h-10 rounded-full bg-theme-hover shrink-0" />
+        <div className="flex-1 space-y-2.5">
+          <div className="flex items-center gap-2">
+            <div className="h-3.5 w-24 bg-theme-hover rounded" />
+            <div className="h-3 w-16 bg-theme-hover rounded" />
+          </div>
+          <div className="h-3 w-full bg-theme-hover rounded" />
+          <div className="h-3 w-3/4 bg-theme-hover rounded" />
+          <div className="flex gap-8 mt-3">
+            <div className="h-3 w-10 bg-theme-hover rounded" />
+            <div className="h-3 w-10 bg-theme-hover rounded" />
+            <div className="h-3 w-10 bg-theme-hover rounded" />
+            <div className="h-3 w-10 bg-theme-hover rounded" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const SIMULATED_POSTS = [
   { content: "Just discovered that CSS container queries work in all major browsers now. The responsive design game just changed forever!", authorIdx: 0 },
@@ -25,6 +50,7 @@ const POSTS_PER_PAGE = 10;
 
 export default function Feed() {
   const { posts, addPost } = useApp();
+  const reduceMotion = useReducedMotion();
   const [feedMode, setFeedMode] = useState<FeedMode>('trusted');
   const [pendingPosts, setPendingPosts] = useState<Post[]>([]);
   const [visibleCount, setVisibleCount] = useState(POSTS_PER_PAGE);
@@ -32,6 +58,12 @@ export default function Feed() {
   const simIndexRef = useRef(0);
   const feedTopRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setInitialLoading(false), 800);
+    return () => clearTimeout(timer);
+  }, []);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -57,7 +89,18 @@ export default function Feed() {
     feedTopRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [pendingPosts, addPost]);
 
-  // Infinite scroll observer
+  // Infinite scroll observer — moved after sortedPosts definition
+  const sortedPosts = useMemo(() => {
+    if (feedMode === 'trusted') {
+      return [...posts].sort((a, b) => {
+        const scoreA = (a.credibility.authorTrust * 0.4) + (a.credibility.contentScore * 0.3) + (a.credibility.engagementQuality * 100 * 0.3);
+        const scoreB = (b.credibility.authorTrust * 0.4) + (b.credibility.contentScore * 0.3) + (b.credibility.engagementQuality * 100 * 0.3);
+        return scoreB - scoreA;
+      });
+    }
+    return [...posts].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [posts, feedMode]);
+
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -73,18 +116,7 @@ export default function Feed() {
     );
     if (loadMoreRef.current) observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
-  });
-
-  const sortedPosts = useMemo(() => {
-    if (feedMode === 'trusted') {
-      return [...posts].sort((a, b) => {
-        const scoreA = (a.credibility.authorTrust * 0.4) + (a.credibility.contentScore * 0.3) + (a.credibility.engagementQuality * 100 * 0.3);
-        const scoreB = (b.credibility.authorTrust * 0.4) + (b.credibility.contentScore * 0.3) + (b.credibility.engagementQuality * 100 * 0.3);
-        return scoreB - scoreA;
-      });
-    }
-    return [...posts].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [posts, feedMode]);
+  }, [visibleCount, sortedPosts.length]);
 
   const handlePost = (content: string, media?: import('@/types').MediaAttachment[]) => { addPost(content, media); };
 
@@ -111,18 +143,25 @@ export default function Feed() {
           </motion.div>
         </AnimatePresence>
       </div>
-      <AnimatePresence>
-        {pendingPosts.length > 0 && (
-          <motion.button className="w-full py-2.5 bg-xbee-primary/10 hover:bg-xbee-primary/20 text-xbee-primary text-sm font-medium flex items-center justify-center gap-2 border-b border-theme" onClick={showPending} initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-            <ArrowUp className="w-4 h-4" />Show {pendingPosts.length} new post{pendingPosts.length > 1 ? 's' : ''}
-          </motion.button>
+      <div
+        className={cn(
+          'w-full py-2.5 bg-xbee-primary/10 hover:bg-xbee-primary/20 text-xbee-primary text-sm font-medium flex items-center justify-center gap-2 border-b border-theme cursor-pointer transition-all duration-300',
+          pendingPosts.length > 0 ? 'opacity-100 max-h-12' : 'opacity-0 max-h-0 overflow-hidden pointer-events-none'
         )}
-      </AnimatePresence>
+        onClick={showPending}
+        role="button"
+        tabIndex={pendingPosts.length > 0 ? 0 : -1}
+      >
+        <ArrowUp className="w-4 h-4" />Show {pendingPosts.length} new post{pendingPosts.length > 1 ? 's' : ''}
+      </div>
       <div ref={feedTopRef}><PostComposer onPost={handlePost} /></div>
+      {initialLoading ? (
+        <div>{Array.from({ length: 5 }).map((_, i) => <PostSkeleton key={i} />)}</div>
+      ) : (
       <div>
         <AnimatePresence initial={false}>
           {sortedPosts.slice(0, visibleCount).map((post, index) => (
-            <motion.div key={post.id} initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, ease: 'easeOut' }}>
+            <motion.div key={post.id} initial={reduceMotion ? false : { opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.35, ease: 'easeOut' }}>
               <PostCard post={post} index={index} feedMode={feedMode} />
             </motion.div>
           ))}
@@ -145,6 +184,7 @@ export default function Feed() {
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

@@ -14,6 +14,8 @@ import TrustBadge from '@/components/trust/TrustBadge';
 import { Post, FeedMode, Comment } from '@/types';
 import { formatNumber, formatTimeAgo, cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
+import { BASE_URL } from '@/lib/config';
+import { useReducedMotion } from '@/lib/useReducedMotion';
 
 interface PostCardProps {
   post: Post;
@@ -151,6 +153,9 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
   const [tipAmount, setTipAmount] = useState('');
   const [tipSent, setTipSent] = useState(false);
   const commentInputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const shareMenuRef = useRef<HTMLDivElement>(null);
+  const reduceMotion = useReducedMotion();
 
   const isOwnPost = post.author.id === currentUser.id;
   const isFollowingAuthor = checkFollowing ? checkFollowing(post.author.id) : false;
@@ -160,6 +165,21 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
   useEffect(() => {
     viewPost?.(post.id);
   }, [post.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Click-outside and Escape to close dropdowns
+  useEffect(() => {
+    if (!showMenu && !showShareMenu) return;
+    const handleClick = (e: MouseEvent) => {
+      if (showMenu && menuRef.current && !menuRef.current.contains(e.target as Node)) setShowMenu(false);
+      if (showShareMenu && shareMenuRef.current && !shareMenuRef.current.contains(e.target as Node)) setShowShareMenu(false);
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setShowMenu(false); setShowShareMenu(false); }
+    };
+    document.addEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => { document.removeEventListener('mousedown', handleClick); document.removeEventListener('keydown', handleKey); };
+  }, [showMenu, showShareMenu]);
 
   const handleLike = () => {
     setLiked(!liked);
@@ -173,7 +193,7 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
     repostPost?.(post.id);
   };
 
-  const getShareUrl = () => `${typeof window !== 'undefined' ? window.location.origin : ''}/post/${post.id}`;
+  const getShareUrl = () => `${BASE_URL}/post/${post.id}`;
   const getShareText = () => `${post.content.substring(0, 100)}${post.content.length > 100 ? '...' : ''}  shared from Xbee`;
 
   const handleShare = (platform: string) => {
@@ -199,6 +219,7 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
     const newComment: Comment = { id: `c-${Date.now()}`, author: currentUser, content: commentText.trim(), createdAt: new Date().toISOString(), likes: 0, liked: false, replies: [] };
     setComments(prev => [...prev, newComment]);
     setCommentText('');
+    commentInputRef.current?.blur();
   };
 
   const handleLikeComment = useCallback((commentId: string) => {
@@ -226,7 +247,7 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
 
   return (
     <>
-      <motion.article className={cn('px-4 py-3 border-b border-theme hover:bg-theme-hover/50 transition-colors', isReachLimited && feedMode === 'trusted' && 'opacity-75')} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.05, duration: 0.3 }}>
+      <motion.article className={cn('px-4 py-3 border-b border-theme hover:bg-theme-hover/50 transition-colors', isReachLimited && feedMode === 'trusted' && 'opacity-75')} initial={reduceMotion ? false : { opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: reduceMotion ? 0 : index * 0.05, duration: reduceMotion ? 0 : 0.3 }}>
         {isReachLimited && feedMode === 'trusted' && (
           <div className="flex items-center gap-1.5 ml-12 mb-1.5">
             <ShieldAlert className="w-3.5 h-3.5 text-orange-400" />
@@ -261,31 +282,31 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
                   </motion.button>
                 )}
               </div>
-              <div className="relative">
-                <motion.button className="p-1.5 rounded-full hover:bg-xbee-primary/10 text-theme-tertiary hover:text-xbee-primary transition-colors" whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}>
+              <div className="relative" ref={menuRef}>
+                <motion.button className="p-1.5 rounded-full hover:bg-xbee-primary/10 text-theme-tertiary hover:text-xbee-primary transition-colors" whileTap={{ scale: 0.9 }} onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }} aria-expanded={showMenu} aria-haspopup="true">
                   <MoreHorizontal className="w-4 h-4" />
                 </motion.button>
                 <AnimatePresence>
                   {showMenu && (
-                    <motion.div className="absolute right-0 top-8 glass-card w-56 py-1 z-20" initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} onClick={(e) => e.stopPropagation()}>
+                    <motion.div className="absolute right-0 top-8 glass-card w-56 py-1 z-20" role="menu" initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} onClick={(e) => e.stopPropagation()}>
                       {!isOwnPost && (
-                        <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { isFollowingAuthor ? unfollowUser?.(post.author.id) : followUser?.(post.author.id); setShowMenu(false); }}>
+                        <button role="menuitem" className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { isFollowingAuthor ? unfollowUser?.(post.author.id) : followUser?.(post.author.id); setShowMenu(false); }}>
                           {isFollowingAuthor ? <UserMinus className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
                           {isFollowingAuthor ? `Unfollow @${post.author.username}` : `Follow @${post.author.username}`}
                         </button>
                       )}
-                      <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { setShowStats(!showStats); setShowMenu(false); }}>
+                      <button role="menuitem" className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { setShowStats(!showStats); setShowMenu(false); }}>
                         <BarChart3 className="w-4 h-4" /> Post analytics
                       </button>
                       {post.whyShowing && (
-                        <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { setShowWhy(!showWhy); setShowMenu(false); }}>
+                        <button role="menuitem" className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { setShowWhy(!showWhy); setShowMenu(false); }}>
                           <Info className="w-4 h-4" /> Why am I seeing this?
                         </button>
                       )}
-                      <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { setShowTip(true); setShowMenu(false); }}>
+                      <button role="menuitem" className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { setShowTip(true); setShowMenu(false); }}>
                         <DollarSign className="w-4 h-4" /> Tip creator
                       </button>
-                      <button className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-xbee-danger hover:bg-theme-hover transition-colors" onClick={() => { setShowReport(true); setShowMenu(false); }}>
+                      <button role="menuitem" className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-xbee-danger hover:bg-theme-hover transition-colors" onClick={() => { setShowReport(true); setShowMenu(false); }}>
                         <Flag className="w-4 h-4" /> Report post
                       </button>
                     </motion.div>
@@ -400,16 +421,16 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
                 <motion.button className={cn('post-action', bookmarked && 'text-xbee-primary')} onClick={(e) => { e.stopPropagation(); setBookmarked(!bookmarked); bookmarkPost?.(post.id); }} whileTap={{ scale: 0.85 }}>
                   <div className="p-2 rounded-full group-hover:bg-xbee-primary/10 transition-colors"><Bookmark className={cn('w-[18px] h-[18px]', bookmarked && 'fill-current')} /></div>
                 </motion.button>
-                <div className="relative">
-                  <motion.button className={cn('post-action', showShareMenu && 'text-xbee-primary')} onClick={(e) => { e.stopPropagation(); setShowShareMenu(!showShareMenu); }} whileTap={{ scale: 0.85 }}>
+                <div className="relative" ref={shareMenuRef}>
+                  <motion.button className={cn('post-action', showShareMenu && 'text-xbee-primary')} onClick={(e) => { e.stopPropagation(); setShowShareMenu(!showShareMenu); }} whileTap={{ scale: 0.85 }} aria-expanded={showShareMenu} aria-haspopup="true">
                     <div className="p-2 rounded-full group-hover:bg-xbee-primary/10 transition-colors"><Share className="w-[18px] h-[18px]" /></div>
                   </motion.button>
                   <AnimatePresence>
                     {showShareMenu && (
-                      <motion.div className="absolute right-0 bottom-10 glass-card w-56 py-1 z-30" initial={{ opacity: 0, scale: 0.95, y: 5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 5 }} onClick={(e) => e.stopPropagation()}>
+                      <motion.div className="absolute right-0 bottom-10 glass-card w-56 py-1 z-30" role="menu" initial={{ opacity: 0, scale: 0.95, y: 5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 5 }} onClick={(e) => e.stopPropagation()}>
                         <div className="px-3 py-2 border-b border-theme"><span className="text-xs font-bold text-theme-tertiary">SHARE TO</span></div>
                         {sharePlatforms.map((p) => (
-                          <button key={p.name} className={cn('flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-theme-hover transition-colors', p.color)} onClick={() => handleShare(p.icon)}>
+                          <button key={p.name} role="menuitem" className={cn('flex items-center gap-3 w-full px-4 py-2.5 text-sm hover:bg-theme-hover transition-colors', p.color)} onClick={() => handleShare(p.icon)}>
                             <SocialIcon type={p.icon} />
                             {p.name === 'Copy link' && copiedLink ? 'Copied!' : p.name}
                           </button>
@@ -457,13 +478,13 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
       {/* Media Viewer Modal */}
       <AnimatePresence>
         {showMediaViewer !== null && post.media && (
-          <motion.div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowMediaViewer(null)}>
+          <motion.div className="fixed inset-0 z-[9999] bg-black/95 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Media viewer" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowMediaViewer(null)}>
             <motion.button className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-white hover:bg-white/20 z-10" whileTap={{ scale: 0.9 }} onClick={() => setShowMediaViewer(null)}>
               <X className="w-6 h-6" />
             </motion.button>
             <div className="max-w-[90vw] max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
               {post.media[showMediaViewer]?.type === 'image' ? (
-                <motion.img src={post.media[showMediaViewer]?.url} alt="" className="max-w-full max-h-[90vh] object-contain rounded-lg" initial={{ scale: 0.8 }} animate={{ scale: 1 }} />
+                <motion.img src={post.media[showMediaViewer]?.url} alt={post.media[showMediaViewer]?.alt || 'Post media'} className="max-w-full max-h-[90vh] object-contain rounded-lg" initial={{ scale: 0.8 }} animate={{ scale: 1 }} />
               ) : (
                 <video src={post.media[showMediaViewer]?.url} className="max-w-full max-h-[90vh]" controls autoPlay />
               )}
@@ -482,7 +503,7 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
       {/* Report Modal */}
       <AnimatePresence>
         {showReport && (
-          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowReport(false); setReportSubmitted(false); setReportReason(''); }}>
+          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Report post" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowReport(false); setReportSubmitted(false); setReportReason(''); }}>
             <motion.div className="glass-card w-full max-w-sm p-5" initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}>
               {reportSubmitted ? (
                 <div className="text-center py-4">
@@ -513,7 +534,7 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
       {/* Tip Modal */}
       <AnimatePresence>
         {showTip && (
-          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowTip(false); setTipSent(false); setTipAmount(''); }}>
+          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Tip creator" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowTip(false); setTipSent(false); setTipAmount(''); }}>
             <motion.div className="glass-card w-full max-w-sm p-5" initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}>
               {tipSent ? (
                 <div className="text-center py-4">

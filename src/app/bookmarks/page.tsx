@@ -4,6 +4,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { Bookmark } from 'lucide-react';
 import PostCard from '@/components/feed/PostCard';
+import EmptyState from '@/components/ui/EmptyState';
 import { useApp } from '@/context/AppContext';
 
 export default function BookmarksPage() {
@@ -18,13 +19,11 @@ export default function BookmarksPage() {
       </div>
 
       {bookmarkedPosts.length === 0 ? (
-        <div className="py-20 text-center">
-          <Bookmark className="w-16 h-16 text-theme-tertiary mx-auto mb-4 opacity-30" />
-          <h2 className="text-xl font-bold text-theme-primary mb-2">No bookmarks yet</h2>
-          <p className="text-sm text-theme-tertiary max-w-[300px] mx-auto">
-            Save posts to your bookmarks by tapping the bookmark icon on any post. They&apos;ll show up here.
-          </p>
-        </div>
+        <EmptyState
+          icon={Bookmark}
+          title="No bookmarks yet"
+          description="Save posts to your bookmarks by tapping the bookmark icon on any post. They'll show up here."
+        />
       ) : (
         <div>
           {bookmarkedPosts.map((post, index) => (

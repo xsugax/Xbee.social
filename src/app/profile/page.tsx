@@ -33,19 +33,24 @@ function ProfileContent() {
 
   const [activeTab, setActiveTab] = useState<ProfileTab>('posts');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
-  const [coverImage, setCoverImage] = useState<string | null>(null);
-  const [avatarImage, setAvatarImage] = useState<string | null>(displayUser.avatar || null);
+  const [coverImage, setCoverImage] = useState<string | null>(() => {
+    try { return localStorage.getItem('xbee_cover_image'); } catch { return null; }
+  });
+  const [avatarImage, setAvatarImage] = useState<string | null>(() => {
+    try { return localStorage.getItem('xbee_avatar_image') || displayUser.avatar || null; } catch { return displayUser.avatar || null; }
+  });
   const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState(currentUser.displayName);
   const [editUsername, setEditUsername] = useState(currentUser.username);
   const [editBio, setEditBio] = useState(currentUser.bio);
+  const [editError, setEditError] = useState('');
   const coverInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
   const userPosts = posts.filter(p => p.author.id === displayUser.id);
   const displayPosts = useMemo(() => {
     switch (activeTab) {
-      case 'replies': return userPosts.filter(p => p.content.startsWith('@') || p.content.includes('reply'));
+      case 'replies': return userPosts.filter(p => p.replyTo || (p.content.startsWith('@') && p.content.length > 1) || p.replies > 0);
       case 'media': return userPosts.filter(p => p.media && p.media.length > 0);
       case 'likes': return posts.filter(p => p.liked);
       default: return userPosts;
@@ -62,13 +67,30 @@ function ProfileContent() {
 
   const handleCoverUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setCoverImage(URL.createObjectURL(file));
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const base64 = evt.target?.result as string;
+        setCoverImage(base64);
+        try { localStorage.setItem('xbee_cover_image', base64); } catch {}
+      };
+      reader.readAsDataURL(file);
+    }
     e.target.value = '';
   };
 
   const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setAvatarImage(URL.createObjectURL(file));
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (evt) => {
+        const base64 = evt.target?.result as string;
+        setAvatarImage(base64);
+        updateProfile({ avatar: base64 });
+        try { localStorage.setItem('xbee_avatar_image', base64); } catch {}
+      };
+      reader.readAsDataURL(file);
+    }
     e.target.value = '';
   };
 
@@ -101,7 +123,7 @@ function ProfileContent() {
         onClick={() => isOwnProfile && coverInputRef.current?.click()}
       >
         {coverImage && (
-          <img src={coverImage} alt="Cover" className="absolute inset-0 w-full h-full object-cover" />
+          <img src={coverImage} alt={`${displayUser.displayName}'s cover photo`} className="absolute inset-0 w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         )}
         <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors" />
         {isOwnProfile && (
@@ -350,16 +372,24 @@ function ProfileContent() {
                   />
                   <span className="text-[10px] text-theme-tertiary mt-1">{editBio.length}/160</span>
                 </div>
+                {editError && (
+                  <p className="text-xs text-red-400 text-center">{editError}</p>
+                )}
                 <motion.button
                   className="w-full py-2.5 rounded-full bg-xbee-primary text-white font-bold text-sm hover:bg-xbee-primary/90 transition-colors"
                   whileTap={{ scale: 0.97 }}
                   onClick={() => {
-                    updateProfile({
+                    setEditError('');
+                    const success = updateProfile({
                       displayName: editName.trim() || currentUser.displayName,
                       username: editUsername.trim() || currentUser.username,
                       bio: editBio.trim(),
                     });
-                    setShowEditModal(false);
+                    if (success) {
+                      setShowEditModal(false);
+                    } else {
+                      setEditError('Username is already taken. Please choose another.');
+                    }
                   }}
                 >
                   Save Changes

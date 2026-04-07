@@ -21,6 +21,17 @@ import { formatNumber, formatTimeAgo, cn, generateId } from '@/lib/utils';
 import { User, TrustTier, VerificationType } from '@/types';
 import { useApp } from '@/context/AppContext';
 
+// Password hashing for admin-created users
+async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + 'xbee_salt_2026');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+const ADMIN_IDS = ['user-1'];
+const ADMIN_USERNAMES = ['alexchen'];
+
 type AdminTab = 'users' | 'posts' | 'analytics' | 'controls' | 'logs' | 'broadcast';
 
 const VERIFICATION_TYPES: { value: VerificationType; label: string; color: string; desc: string }[] = [
@@ -57,6 +68,8 @@ export default function AdminPage() {
     notifications, addNotification, currentUser
   } = useApp();
 
+  const isAdmin = ADMIN_IDS.includes(currentUser.id) || ADMIN_USERNAMES.includes(currentUser.username);
+
   const [activeTab, setActiveTab] = useState<AdminTab>('users');
   const [searchQuery, setSearchQuery] = useState('');
   const [logs, setLogs] = useState<AdminLog[]>(initialLogs);
@@ -89,6 +102,21 @@ export default function AdminPage() {
     maintenanceMode: false,
   });
 
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-6">
+        <div className="text-center">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-red-500/10 flex items-center justify-center">
+            <Lock className="w-8 h-8 text-red-400" />
+          </div>
+          <h1 className="text-xl font-bold text-theme-primary mb-2">Access Denied</h1>
+          <p className="text-sm text-theme-tertiary mb-4">God Mode is restricted to platform administrators.</p>
+          <Link href="/" className="text-sm text-xbee-primary font-medium hover:underline">← Back to App</Link>
+        </div>
+      </div>
+    );
+  }
+
   const addLog = (action: string, target: string, severity: AdminLog['severity'] = 'low') => {
     setLogs(prev => [{ id: generateId(), action, target, actor: 'Admin', time: new Date().toISOString(), severity }, ...prev]);
   };
@@ -117,8 +145,10 @@ export default function AdminPage() {
     );
   }, [posts, searchQuery]);
 
-  const handleAddUser = () => {
+  const handleAddUser = async () => {
     if (!newUser.displayName || !newUser.username || !newUser.password) return;
+
+    const hashedPw = await hashPassword(newUser.password);
 
     const user: User = {
       id: `user-${generateId()}`,
@@ -160,7 +190,7 @@ export default function AdminPage() {
           email: newUser.email || `${newUser.username}@xbee.social`,
           username: newUser.username,
           displayName: newUser.displayName,
-          password: newUser.password,
+          password: hashedPw,
           createdAt: new Date().toISOString(),
         });
         localStorage.setItem('xbee_users', JSON.stringify(authUsers));
@@ -327,7 +357,7 @@ export default function AdminPage() {
             {showAddUser && (
               <motion.div className="px-4 py-4 border-b border-theme bg-emerald-500/5" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
                 <h3 className="text-sm font-bold text-theme-primary mb-3 flex items-center gap-2"><UserPlus className="w-4 h-4 text-emerald-400" /> Create New User</h3>
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <input className="xbee-input text-sm" placeholder="Display Name *" value={newUser.displayName} onChange={e => setNewUser(p => ({ ...p, displayName: e.target.value }))} />
                   <input className="xbee-input text-sm" placeholder="Username *" value={newUser.username} onChange={e => setNewUser(p => ({ ...p, username: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') }))} />
                   <input className="xbee-input text-sm" placeholder="Email" value={newUser.email} onChange={e => setNewUser(p => ({ ...p, email: e.target.value }))} />

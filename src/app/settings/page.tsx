@@ -23,6 +23,14 @@ function saveSetting(key: string, value: boolean) {
   localStorage.setItem('xbee_settings', JSON.stringify(settings));
 }
 
+// Simple hash for demo password storage (not cryptographically secure — production would use bcrypt server-side)
+async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + 'xbee_salt_2026');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export default function SettingsPage() {
   const { currentUser } = useApp();
   const [settings, setSettings] = useState<Record<string, boolean>>({});
@@ -66,7 +74,7 @@ export default function SettingsPage() {
     });
   }, []);
 
-  const handlePasswordChange = () => {
+  const handlePasswordChange = async () => {
     setPasswordMsg({ type: '', text: '' });
     if (!oldPassword) { setPasswordMsg({ type: 'error', text: 'Enter current password' }); return; }
     if (newPassword.length < 6) { setPasswordMsg({ type: 'error', text: 'New password must be at least 6 characters' }); return; }
@@ -76,11 +84,19 @@ export default function SettingsPage() {
       const users = JSON.parse(localStorage.getItem('xbee_users') || '[]');
       const session = JSON.parse(localStorage.getItem('xbee_session') || '{}');
       const idx = users.findIndex((u: any) => u.email === session.email || u.username === session.username);
-      if (idx === -1 || users[idx].password !== oldPassword) {
+      if (idx === -1) {
+        setPasswordMsg({ type: 'error', text: 'User not found' });
+        return;
+      }
+      // Check old password (support both hashed and legacy plaintext)
+      const oldHash = await hashPassword(oldPassword);
+      const storedPw = users[idx].password;
+      if (storedPw !== oldHash && storedPw !== oldPassword) {
         setPasswordMsg({ type: 'error', text: 'Current password is incorrect' });
         return;
       }
-      users[idx].password = newPassword;
+      // Store new password as hash
+      users[idx].password = await hashPassword(newPassword);
       localStorage.setItem('xbee_users', JSON.stringify(users));
       setPasswordMsg({ type: 'success', text: 'Password updated successfully!' });
       setOldPassword(''); setNewPassword(''); setConfirmPassword('');
@@ -107,9 +123,22 @@ export default function SettingsPage() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem('xbee_session');
-    localStorage.removeItem('xbee_remembered');
-    localStorage.removeItem('xbee_auth');
+    // Clear all xbee_* keys except registered users (so accounts persist)
+    const keysToRemove = Object.keys(localStorage).filter(k => k.startsWith('xbee_') && k !== 'xbee_users');
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    window.location.reload();
+  };
+
+  const handleDeleteAccount = () => {
+    if (!confirm('Are you sure you want to delete your account? This action cannot be undone.')) return;
+    try {
+      const session = JSON.parse(localStorage.getItem('xbee_session') || '{}');
+      const users = JSON.parse(localStorage.getItem('xbee_users') || '[]');
+      const filtered = users.filter((u: any) => u.username !== session.username && u.email !== session.email);
+      localStorage.setItem('xbee_users', JSON.stringify(filtered));
+    } catch {}
+    // Clear all session data
+    Object.keys(localStorage).filter(k => k.startsWith('xbee_') && k !== 'xbee_users').forEach(k => localStorage.removeItem(k));
     window.location.reload();
   };
 
@@ -294,7 +323,7 @@ export default function SettingsPage() {
           ].map((item) => {
             const Icon = item.icon;
             return (
-              <motion.div key={item.label} className="flex items-center gap-4 px-5 py-3.5 hover:bg-theme-hover transition-colors cursor-pointer border-b border-theme last:border-0" whileTap={{ scale: 0.99 }} onClick={() => alert(`${item.label}\n\n${item.desc}\n\nFull documentation coming soon. Contact support@xbee.social for inquiries.`)}>
+              <motion.div key={item.label} className="flex items-center gap-4 px-5 py-3.5 hover:bg-theme-hover transition-colors cursor-pointer border-b border-theme last:border-0" whileTap={{ scale: 0.99 }}>
                 <Icon className="w-5 h-5 text-theme-secondary shrink-0" />
                 <div className="flex-1"><p className="text-sm font-medium text-theme-primary">{item.label}</p><p className="text-xs text-theme-tertiary">{item.desc}</p></div>
                 <ExternalLink className="w-4 h-4 text-theme-tertiary" />
@@ -306,6 +335,11 @@ export default function SettingsPage() {
         {/* Logout */}
         <motion.button className="w-full py-3 rounded-xl border border-red-500/20 text-red-400 font-bold text-sm flex items-center justify-center gap-2 hover:bg-red-500/5 transition-colors" onClick={handleLogout} whileTap={{ scale: 0.98 }}>
           <LogOut className="w-4 h-4" /> Sign Out
+        </motion.button>
+
+        {/* Delete Account */}
+        <motion.button className="w-full py-3 rounded-xl border border-red-500/30 bg-red-500/5 text-red-500 font-bold text-sm flex items-center justify-center gap-2 hover:bg-red-500/10 transition-colors" onClick={handleDeleteAccount} whileTap={{ scale: 0.98 }}>
+          <Trash2 className="w-4 h-4" /> Delete Account
         </motion.button>
 
         {/* Footer */}
@@ -327,7 +361,7 @@ export default function SettingsPage() {
       {/* ==================== MODALS ==================== */}
       <AnimatePresence>
         {showModal && (
-          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowModal(null)}>
+          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Settings" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowModal(null)}>
             <motion.div className="glass-card w-full max-w-md max-h-[80vh] overflow-y-auto" initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}>
 
               {/* Account Info */}

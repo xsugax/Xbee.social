@@ -6,6 +6,7 @@ import {
   Mail, Lock, Eye, EyeOff, ArrowRight, Shield, Fingerprint,
   Smartphone, ChevronLeft, Check, User, AtSign, AlertCircle, Loader2, CheckCircle2
 } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 
 type AuthMode = 'welcome' | 'login' | 'signup' | 'verify';
 
@@ -17,6 +18,7 @@ interface RegisteredUser {
   createdAt: string;
 }
 
+// Legacy localStorage helpers (fallback when Supabase not configured)
 function getRegisteredUsers(): RegisteredUser[] {
   try {
     return JSON.parse(localStorage.getItem('xbee_users') || '[]');
@@ -27,7 +29,13 @@ function saveRegisteredUsers(users: RegisteredUser[]) {
   localStorage.setItem('xbee_users', JSON.stringify(users));
 }
 
-// Seed default test accounts on first load
+async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password + 'xbee_salt_2026');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 function ensureDefaultUsers() {
   const users = getRegisteredUsers();
   const defaults: RegisteredUser[] = [
@@ -47,6 +55,7 @@ function ensureDefaultUsers() {
 }
 
 export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
+  const { signIn, signUp, isSupabaseConfigured } = useAuth();
   const [mode, setMode] = useState<AuthMode>('welcome');
   const [showPassword, setShowPassword] = useState(false);
   const [loginId, setLoginId] = useState(''); // email OR username
@@ -61,9 +70,9 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [generatedCode, setGeneratedCode] = useState('');
 
-  useEffect(() => { ensureDefaultUsers(); }, []);
+  useEffect(() => { if (!isSupabaseConfigured) ensureDefaultUsers(); }, [isSupabaseConfigured]);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setError('');
     setLoading(true);
     const id = loginId.trim().toLowerCase();
@@ -75,57 +84,41 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
       return;
     }
 
-    setTimeout(() => {
-      const users = getRegisteredUsers();
-      // Match by email OR username (case-insensitive)
-      const user = users.find(u =>
-        u.email.toLowerCase() === id || u.username.toLowerCase() === id
-      );
-
-      if (!user) {
-        setError('Account not found. Check your email or username.');
-        setLoading(false);
-        return;
-      }
-
-      if (user.password !== pass) {
-        setError('Incorrect password. Try again.');
-        setLoading(false);
-        return;
-      }
-
-      // Success  save session
-      localStorage.setItem('xbee_session', JSON.stringify({
-        email: user.email,
-        username: user.username,
-        displayName: user.displayName,
-        loggedInAt: new Date().toISOString(),
-      }));
-
-      if (rememberMe) {
-        localStorage.setItem('xbee_remembered', 'true');
-      } else {
-        localStorage.removeItem('xbee_remembered');
-      }
-
-      // Update profile if different user
-      try {
-        const existing = JSON.parse(localStorage.getItem('xbee_profile') || '{}');
-        if (!existing.displayName || existing.displayName === 'Alex Chen') {
-          localStorage.setItem('xbee_profile', JSON.stringify({
-            ...existing,
-            displayName: user.displayName,
-            username: user.username,
-          }));
-        }
-      } catch {}
-
+    if (isSupabaseConfigured) {
+      // Supabase Auth
+      const { error: err } = await signIn(id, pass);
       setLoading(false);
+      if (err) {
+        setError(err);
+        return;
+      }
       onAuth();
-    }, 800);
+    } else {
+      // Legacy localStorage auth
+      setTimeout(async () => {
+        const users = getRegisteredUsers();
+        const user = users.find(u =>
+          u.email.toLowerCase() === id || u.username.toLowerCase() === id
+        );
+        if (!user) { setError('Account not found. Check your email or username.'); setLoading(false); return; }
+        const hashedPass = await hashPassword(pass);
+        if (user.password !== hashedPass && user.password !== pass) { setError('Incorrect password. Try again.'); setLoading(false); return; }
+        localStorage.setItem('xbee_session', JSON.stringify({ email: user.email, username: user.username, displayName: user.displayName, loggedInAt: new Date().toISOString() }));
+        if (rememberMe) localStorage.setItem('xbee_remembered', 'true');
+        else localStorage.removeItem('xbee_remembered');
+        try {
+          const existing = JSON.parse(localStorage.getItem('xbee_profile') || '{}');
+          if (!existing.displayName || existing.displayName === 'Alex Chen') {
+            localStorage.setItem('xbee_profile', JSON.stringify({ ...existing, displayName: user.displayName, username: user.username }));
+          }
+        } catch {}
+        setLoading(false);
+        onAuth();
+      }, 800);
+    }
   };
 
-  const handleSignup = () => {
+  const handleSignup = async () => {
     setError('');
     const trimEmail = email.trim().toLowerCase();
     const trimUsername = username.trim().toLowerCase();
@@ -137,14 +130,24 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
     if (!trimEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimEmail)) { setError('Please enter a valid email address'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
 
-    const users = getRegisteredUsers();
-    if (users.find(u => u.email.toLowerCase() === trimEmail)) { setError('An account with this email already exists'); return; }
-    if (users.find(u => u.username.toLowerCase() === trimUsername)) { setError('This username is already taken'); return; }
-
-    // Generate verification code
-    const code = String(100000 + Math.floor(Math.random() * 900000));
-    setGeneratedCode(code);
-    setMode('verify');
+    if (isSupabaseConfigured) {
+      // Supabase signup — go straight through
+      setLoading(true);
+      const { error: err } = await signUp(trimEmail, password, trimUsername, trimName);
+      setLoading(false);
+      if (err) { setError(err); return; }
+      setSignupSuccess(true);
+      setMode('verify');
+      setTimeout(() => onAuth(), 1500);
+    } else {
+      // Legacy signup with verification code
+      const users = getRegisteredUsers();
+      if (users.find(u => u.email.toLowerCase() === trimEmail)) { setError('An account with this email already exists'); return; }
+      if (users.find(u => u.username.toLowerCase() === trimUsername)) { setError('This username is already taken'); return; }
+      const code = String(100000 + Math.floor(Math.random() * 900000));
+      setGeneratedCode(code);
+      setMode('verify');
+    }
   };
 
   const handleVerify = () => {
@@ -158,13 +161,14 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
     }
 
     setLoading(true);
-    setTimeout(() => {
+    setTimeout(async () => {
       const users = getRegisteredUsers();
+      const hashedPw = await hashPassword(password);
       users.push({
         email: email.trim().toLowerCase(),
         username: username.trim().toLowerCase(),
         displayName: displayName.trim(),
-        password,
+        password: hashedPw,
         createdAt: new Date().toISOString(),
       });
       saveRegisteredUsers(users);
@@ -203,6 +207,11 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
   };
 
   const fillTestAccount = () => {
+    if (isSupabaseConfigured) {
+      // No test accounts in Supabase mode
+      setError('Create a real account to get started!');
+      return;
+    }
     setLoginId('test@xbee.com');
     setPassword('test1234');
     setMode('login');
@@ -348,7 +357,10 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
 
               <div className="mt-6 p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
                 <p className="text-[10px] text-white/20 text-center">
-                  <span className="text-white/30 font-medium">Test accounts:</span> test@xbee.com / test1234 &bull; alex@xbee.com / alex1234 &bull; demo / demo1234
+                  {isSupabaseConfigured
+                    ? <span className="text-white/30 font-medium">Create an account to get started</span>
+                    : <><span className="text-white/30 font-medium">Test accounts:</span> test@xbee.com / test1234 &bull; alex@xbee.com / alex1234 &bull; demo / demo1234</>
+                  }
                 </p>
               </div>
             </motion.div>
@@ -387,7 +399,7 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
                     <input type="text" className="w-full py-3.5 pl-12 pr-4 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-sm placeholder:text-white/20 focus:border-blue-500/50 focus:outline-none focus:ring-1 focus:ring-blue-500/20 transition-colors" placeholder="alexchen" value={username} onChange={(e) => { setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '')); setError(''); }} />
                     {username.length >= 3 && (
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-emerald-400">
-                        {getRegisteredUsers().find(u => u.username === username.toLowerCase()) ? ' Taken' : ' Available'}
+                        {!isSupabaseConfigured && getRegisteredUsers().find(u => u.username === username.toLowerCase()) ? ' Taken' : ' Available'}
                       </span>
                     )}
                   </div>

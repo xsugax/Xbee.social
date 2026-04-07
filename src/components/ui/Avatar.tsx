@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Sparkles } from 'lucide-react';
 
@@ -41,14 +41,16 @@ function getColor(name: string) {
 export default function Avatar({ src, name, size = 'md', verified, online, className }: AvatarProps) {
   const initials = name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
   const color = getColor(name);
+  const [imgError, setImgError] = useState(false);
 
   return (
     <div className={cn('relative shrink-0', className)}>
-      {src ? (
+      {src && !imgError ? (
         <img
           src={src}
-          alt={name}
+          alt={`${name}'s avatar`}
           className={cn('rounded-full object-cover', sizeClasses[size])}
+          onError={() => setImgError(true)}
         />
       ) : (
         <div

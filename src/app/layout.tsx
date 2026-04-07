@@ -2,10 +2,14 @@ import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { ThemeProvider } from '@/context/ThemeContext';
 import { LayoutProvider } from '@/context/LayoutContext';
+import { AuthProvider } from '@/context/AuthContext';
 import { AppProvider } from '@/context/AppContext';
 import LayoutShell from '@/components/layout/LayoutShell';
 import AppShell from '@/components/shell/AppShell';
 import NotificationSystem from '@/components/notifications/NotificationSystem';
+import ErrorBoundary from '@/components/ui/ErrorBoundary';
+import { ToastProvider } from '@/components/ui/Toast';
+import { Analytics } from '@vercel/analytics/react';
 
 const SITE_URL = 'https://xbee.social';
 const SITE_NAME = 'Xbee';
@@ -142,16 +146,23 @@ export default function RootLayout({
       </head>
       <body className="bg-theme-primary text-theme-primary min-h-screen">
         <ThemeProvider>
+          <ToastProvider>
           <LayoutProvider>
+            <AuthProvider>
             <AppProvider>
+              <ErrorBoundary>
               <AppShell>
                 <LayoutShell>
                   {children}
                 </LayoutShell>
               </AppShell>
+              </ErrorBoundary>
               <NotificationSystem />
             </AppProvider>
+            </AuthProvider>
           </LayoutProvider>
+          </ToastProvider>
+          <Analytics />
         </ThemeProvider>
       </body>
     </html>

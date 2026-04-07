@@ -88,15 +88,6 @@ export default function Sidebar() {
               );
             })}
 
-            {/* Admin link for qualified users */}
-            {currentUser.trust.score >= 90 && (
-              <Link href="/admin">
-                <motion.div className={cn('sidebar-link relative', pathname === '/admin' && 'sidebar-link-active')} whileHover={{ x: 4 }} whileTap={{ scale: 0.98 }}>
-                  <Shield className="w-6 h-6" strokeWidth={pathname === '/admin' ? 2.5 : 1.5} />
-                  <span className="max-xl:hidden">Admin</span>
-                </motion.div>
-              </Link>
-            )}
           </nav>
 
           {/* Xbee Pro CTA */}
@@ -129,7 +120,7 @@ export default function Sidebar() {
         <Link href="/profile">
           <motion.div className="flex items-center gap-3 p-3 rounded-full hover:bg-theme-hover transition-colors cursor-pointer" whileHover={{ scale: 1.02 }}>
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-xbee-primary to-xbee-secondary flex items-center justify-center text-white font-bold text-sm shrink-0 relative overflow-hidden">
-              {currentUser.avatar ? <img src={currentUser.avatar} alt="" className="w-full h-full object-cover" /> : currentUser.displayName.charAt(0)}
+              {currentUser.avatar ? <img src={currentUser.avatar} alt={`${currentUser.displayName}'s avatar`} className="w-full h-full object-cover" /> : currentUser.displayName.charAt(0)}
               <div className="absolute -bottom-0.5 -right-0.5">
                 <TrustBadge score={currentUser.trust.score} tier={currentUser.trust.tier} size="sm" verification={currentUser.verification} />
               </div>
@@ -160,7 +151,7 @@ export default function Sidebar() {
               <div className="p-4">
                 <div className="flex gap-3">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-xbee-primary to-xbee-secondary flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden">
-                    {currentUser.avatar ? <img src={currentUser.avatar} alt="" className="w-full h-full object-cover" /> : currentUser.displayName.charAt(0)}
+                    {currentUser.avatar ? <img src={currentUser.avatar} alt={`${currentUser.displayName}'s avatar`} className="w-full h-full object-cover" /> : currentUser.displayName.charAt(0)}
                   </div>
                   <textarea
                     value={composeText}

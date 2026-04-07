@@ -1,14 +1,24 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { User, Post, Conversation, Message, Notification } from '@/types';
 import { currentUser as defaultUser, mockPosts, mockConversations, mockMessages, mockScamMessages, mockUsers, mockNotifications } from '@/lib/mockData';
 import { generateId } from '@/lib/utils';
+import { useAuth, profileToUser } from '@/context/AuthContext';
+import { getSupabase } from '@/lib/supabase';
+import type { Profile, PostRow, NotificationRow } from '@/lib/database.types';
+
+// Type for post rows with joined profile
+type PostWithProfile = PostRow & { profiles: Profile | null };
+// Type for notification rows with joined actor
+type NotifWithActor = NotificationRow & { actor: Profile | null };
+// Type for conv participant with joined profile
+type ParticipantWithProfile = { conversation_id: string; user_id: string; profiles: Profile | null };
 
 interface AppState {
   // Current user (editable)
   currentUser: User;
-  updateProfile: (updates: Partial<User>) => void;
+  updateProfile: (updates: Partial<User>) => boolean;
 
   // Posts (synced globally)
   posts: Post[];
@@ -60,12 +70,47 @@ interface AppState {
 
 const AppContext = createContext<AppState | null>(null);
 
+// Helper: convert DB post row + profile to app Post type
+function dbPostToPost(row: any, author: User, currentUserId: string, userInteractions: { liked: Set<string>; reposted: Set<string>; bookmarked: Set<string> }): Post {
+  return {
+    id: row.id,
+    author,
+    content: row.content,
+    media: row.media || [],
+    poll: row.poll || undefined,
+    likes: row.likes_count,
+    reposts: row.reposts_count,
+    replies: row.replies_count,
+    views: row.views_count,
+    liked: userInteractions.liked.has(row.id),
+    reposted: userInteractions.reposted.has(row.id),
+    bookmarked: userInteractions.bookmarked.has(row.id),
+    createdAt: row.created_at,
+    credibility: {
+      authorTrust: author.trust.score,
+      contentScore: 80,
+      engagementQuality: 1.0,
+      viralityBrake: false,
+    },
+  };
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { profile, user: authUser, isSupabaseConfigured } = useAuth();
+  const isLive = isSupabaseConfigured && !!authUser;
+
+  // Current user: from Supabase profile or localStorage fallback
   const [currentUser, setCurrentUser] = useState<User>(defaultUser);
   const [posts, setPosts] = useState<Post[]>(() => {
+    if (typeof window === 'undefined') return mockPosts;
     try {
       const saved = localStorage.getItem('xbee_posts');
-      if (saved) return JSON.parse(saved);
+      const bookmarkedIds: string[] = JSON.parse(localStorage.getItem('xbee_bookmarks') || '[]');
+      const basePosts = saved ? JSON.parse(saved) : mockPosts;
+      if (bookmarkedIds.length > 0) {
+        return basePosts.map((p: Post) => ({ ...p, bookmarked: bookmarkedIds.includes(p.id) }));
+      }
+      return basePosts;
     } catch {}
     return mockPosts;
   });
@@ -74,10 +119,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     'conv-1': mockMessages,
     'conv-4': mockScamMessages,
   });
-  const [notifications, setNotifications] = useState<Notification[]>(mockNotifications);
+  const [notifications, setNotifications] = useState<Notification[]>(() => {
+    if (typeof window === 'undefined') return mockNotifications;
+    try {
+      const saved = localStorage.getItem('xbee_notifications');
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return mockNotifications;
+  });
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [allUsers, setAllUsers] = useState<User[]>(() => {
+    if (typeof window === 'undefined') return [defaultUser, ...mockUsers];
     try {
       const saved = localStorage.getItem('xbee_system_users');
       if (saved) return JSON.parse(saved);
@@ -85,6 +138,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return [defaultUser, ...mockUsers];
   });
   const [following, setFollowing] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set(['user-1', 'user-3', 'user-4', 'user-7', 'user-8']);
     try {
       const saved = localStorage.getItem('xbee_following');
       if (saved) return new Set(JSON.parse(saved));
@@ -92,115 +146,471 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return new Set(['user-1', 'user-3', 'user-4', 'user-7', 'user-8']);
   });
 
-  // Persist posts to localStorage
-  useEffect(() => {
-    try { localStorage.setItem('xbee_posts', JSON.stringify(posts.slice(0, 100))); } catch {}
-  }, [posts]);
+  // Track user interactions for Supabase mode
+  const userInteractionsRef = useRef({ liked: new Set<string>(), reposted: new Set<string>(), bookmarked: new Set<string>() });
 
-  // Persist following to localStorage
+  // Sync current user from Supabase profile
   useEffect(() => {
-    try { localStorage.setItem('xbee_following', JSON.stringify(Array.from(following))); } catch {}
-  }, [following]);
-
-  const followUser = useCallback((userId: string) => {
-    setFollowing(prev => {
-      const next = new Set(prev);
-      next.add(userId);
-      return next;
-    });
-    // Add notification
-    const target = mockUsers.find(u => u.id === userId);
-    if (target) {
-      setNotifications(prev => [{
-        id: `notif-follow-${Date.now()}`,
-        type: 'follow' as const,
-        actor: currentUser,
-        content: 'started following',
-        createdAt: new Date().toISOString(),
-        read: true,
-      }, ...prev]);
+    if (profile) {
+      setCurrentUser(profile);
+    } else if (!isLive) {
+      try {
+        const saved = localStorage.getItem('xbee_profile');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setCurrentUser(prev => ({ ...prev, ...parsed }));
+        }
+      } catch {}
     }
-  }, [currentUser]);
+  }, [profile, isLive]);
 
-  const unfollowUser = useCallback((userId: string) => {
-    setFollowing(prev => {
-      const next = new Set(prev);
-      next.delete(userId);
-      return next;
-    });
-  }, []);
-
-  const isFollowingUser = useCallback((userId: string) => {
-    return following.has(userId);
-  }, [following]);
-
-  // Persist user profile changes
+  // ========== SUPABASE: Load posts ==========
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem('xbee_profile');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setCurrentUser(prev => ({ ...prev, ...parsed }));
-      }
-    } catch {}
-  }, []);
+    if (!isLive) return;
+    const supabase = getSupabase();
 
-  const updateProfile = useCallback((updates: Partial<User>) => {
+    async function loadPosts() {
+      // Load posts with author profiles
+      const { data: postsData } = await supabase
+        .from('posts')
+        .select('*, profiles!posts_author_id_fkey(*)')
+        .order('created_at', { ascending: false })
+        .limit(50) as unknown as { data: PostWithProfile[] | null };
+
+      if (!postsData) return;
+
+      // Load user interactions
+      const { data: likes } = await supabase.from('post_likes').select('post_id').eq('user_id', authUser!.id) as { data: { post_id: string }[] | null };
+      const { data: reposts } = await supabase.from('post_reposts').select('post_id').eq('user_id', authUser!.id) as { data: { post_id: string }[] | null };
+      const { data: bookmarks } = await supabase.from('post_bookmarks').select('post_id').eq('user_id', authUser!.id) as { data: { post_id: string }[] | null };
+
+      const likedSet = new Set((likes || []).map(l => l.post_id));
+      const repostedSet = new Set((reposts || []).map(r => r.post_id));
+      const bookmarkedSet = new Set((bookmarks || []).map(b => b.post_id));
+      userInteractionsRef.current = { liked: likedSet, reposted: repostedSet, bookmarked: bookmarkedSet };
+
+      const appPosts = postsData.map(row => {
+        const author = row.profiles ? profileToUser(row.profiles) : currentUser;
+        return dbPostToPost(row, author, authUser!.id, userInteractionsRef.current);
+      });
+
+      setPosts(appPosts);
+    }
+
+    loadPosts();
+
+    // Real-time posts subscription
+    const channel = supabase.channel('posts-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, async (payload) => {
+        const { data: fullPost } = await supabase
+          .from('posts')
+          .select('*, profiles!posts_author_id_fkey(*)')
+          .eq('id', payload.new.id)
+          .single() as unknown as { data: PostWithProfile | null };
+        if (fullPost) {
+          const author = fullPost.profiles ? profileToUser(fullPost.profiles) : currentUser;
+          const post = dbPostToPost(fullPost, author, authUser!.id, userInteractionsRef.current);
+          setPosts(prev => [post, ...prev.filter(p => p.id !== post.id)]);
+        }
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'posts' }, (payload) => {
+        setPosts(prev => prev.map(p => p.id === payload.new.id ? { ...p, likes: payload.new.likes_count, reposts: payload.new.reposts_count, replies: payload.new.replies_count, views: payload.new.views_count } : p));
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'posts' }, (payload) => {
+        setPosts(prev => prev.filter(p => p.id !== payload.old.id));
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [isLive, authUser, currentUser]);
+
+  // ========== SUPABASE: Load following ==========
+  useEffect(() => {
+    if (!isLive) return;
+    const supabase = getSupabase();
+
+    async function loadFollowing() {
+      const { data } = await supabase.from('follows').select('following_id').eq('follower_id', authUser!.id);
+      if (data) setFollowing(new Set(data.map(f => f.following_id)));
+    }
+    loadFollowing();
+  }, [isLive, authUser]);
+
+  // ========== SUPABASE: Load notifications ==========
+  useEffect(() => {
+    if (!isLive) return;
+    const supabase = getSupabase();
+
+    async function loadNotifications() {
+      const { data } = await supabase
+        .from('notifications')
+        .select('*, actor:profiles!notifications_actor_id_fkey(*)')
+        .eq('user_id', authUser!.id)
+        .order('created_at', { ascending: false })
+        .limit(50) as unknown as { data: NotifWithActor[] | null };
+
+      if (data) {
+        const appNotifs: Notification[] = data.map(n => ({
+          id: n.id,
+          type: n.type as any,
+          actor: n.actor ? profileToUser(n.actor) : currentUser,
+          content: n.content,
+          postId: n.post_id || undefined,
+          read: n.read,
+          createdAt: n.created_at,
+        }));
+        setNotifications(appNotifs);
+      }
+    }
+    loadNotifications();
+
+    // Real-time notifications
+    const channel = supabase.channel('notifications-realtime')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${authUser!.id}` }, async (payload) => {
+        const { data: full } = await supabase
+          .from('notifications')
+          .select('*, actor:profiles!notifications_actor_id_fkey(*)')
+          .eq('id', payload.new.id)
+          .single() as unknown as { data: NotifWithActor | null };
+        if (full) {
+          const notif: Notification = {
+            id: full.id,
+            type: full.type as any,
+            actor: full.actor ? profileToUser(full.actor) : currentUser,
+            content: full.content,
+            postId: full.post_id || undefined,
+            read: full.read,
+            createdAt: full.created_at,
+          };
+          setNotifications(prev => [notif, ...prev]);
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [isLive, authUser, currentUser]);
+
+  // ========== SUPABASE: Load conversations ==========
+  useEffect(() => {
+    if (!isLive) return;
+    const supabase = getSupabase();
+
+    async function loadConversations() {
+      const { data: participations } = await supabase
+        .from('conversation_participants')
+        .select('conversation_id')
+        .eq('user_id', authUser!.id);
+
+      if (!participations || participations.length === 0) return;
+
+      const convIds = participations.map(p => p.conversation_id);
+      const { data: convos } = await supabase
+        .from('conversations')
+        .select('*')
+        .in('id', convIds)
+        .order('updated_at', { ascending: false });
+
+      if (!convos) return;
+
+      // Get participants for each conversation
+      const { data: allParticipants } = await supabase
+        .from('conversation_participants')
+        .select('conversation_id, user_id, profiles!conversation_participants_user_id_fkey(*)')
+        .in('conversation_id', convIds) as unknown as { data: ParticipantWithProfile[] | null };
+
+      // Get last message for each conversation
+      const appConvos: Conversation[] = await Promise.all(convos.map(async (c) => {
+        const participants = (allParticipants || [])
+          .filter(p => p.conversation_id === c.id)
+          .map(p => p.profiles ? profileToUser(p.profiles as any) : currentUser);
+
+        const { data: lastMsg } = await supabase
+          .from('messages')
+          .select('*')
+          .eq('conversation_id', c.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .single();
+
+        const lastMessage: Message = lastMsg ? {
+          id: lastMsg.id,
+          senderId: lastMsg.sender_id,
+          content: lastMsg.content,
+          type: lastMsg.type as any,
+          createdAt: lastMsg.created_at,
+          read: true,
+          encrypted: true,
+        } : {
+          id: 'empty', senderId: '', content: 'No messages yet', type: 'system', createdAt: c.created_at, read: true, encrypted: false,
+        };
+
+        return {
+          id: c.id,
+          participants,
+          lastMessage,
+          unreadCount: 0,
+          pinned: false,
+          muted: false,
+          encrypted: true,
+          safeMode: false,
+          riskLevel: 'safe' as const,
+          scamAlerts: [],
+        };
+      }));
+
+      setConversations(appConvos);
+    }
+
+    loadConversations();
+  }, [isLive, authUser, currentUser]);
+
+  // ========== SUPABASE: Real-time messages for active conversation ==========
+  useEffect(() => {
+    if (!isLive || !activeConvId) return;
+    const supabase = getSupabase();
+    const convId = activeConvId;
+
+    // Load messages for active conversation
+    async function loadMessages() {
+      const { data } = await supabase
+        .from('messages')
+        .select('*')
+        .eq('conversation_id', convId)
+        .order('created_at', { ascending: true })
+        .limit(100);
+
+      if (data) {
+        const msgs: Message[] = data.map(m => ({
+          id: m.id,
+          senderId: m.sender_id,
+          content: m.content,
+          type: m.type as any,
+          createdAt: m.created_at,
+          read: true,
+          encrypted: true,
+          ghost: m.ghost_expires_at ? {
+            enabled: true,
+            expiresIn: Math.max(0, Math.floor((new Date(m.ghost_expires_at).getTime() - new Date(m.created_at).getTime()) / 1000)),
+            expiresAt: m.ghost_expires_at,
+          } : undefined,
+        }));
+        setMessageStore(prev => ({ ...prev, [convId]: msgs }));
+      }
+    }
+    loadMessages();
+
+    // Real-time messages
+    const channel = supabase.channel(`messages-${convId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${convId}` }, (payload) => {
+        const m = payload.new;
+        const msg: Message = {
+          id: m.id,
+          senderId: m.sender_id,
+          content: m.content,
+          type: m.type as any,
+          createdAt: m.created_at,
+          read: true,
+          encrypted: true,
+        };
+        setMessageStore(prev => ({
+          ...prev,
+          [convId]: [...(prev[convId] || []), msg],
+        }));
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [isLive, activeConvId]);
+
+  // ========== LOCAL PERSISTENCE (fallback mode) ==========
+  useEffect(() => {
+    if (isLive) return;
+    try { localStorage.setItem('xbee_posts', JSON.stringify(posts.slice(0, 100))); } catch {}
+  }, [posts, isLive]);
+
+  useEffect(() => {
+    if (isLive) return;
+    try { localStorage.setItem('xbee_following', JSON.stringify(Array.from(following))); } catch {}
+  }, [following, isLive]);
+
+  useEffect(() => {
+    if (isLive) return;
+    try { localStorage.setItem('xbee_notifications', JSON.stringify(notifications.slice(0, 200))); } catch {}
+  }, [notifications, isLive]);
+
+  useEffect(() => {
+    if (isLive) return;
+    try { localStorage.setItem('xbee_system_users', JSON.stringify(allUsers)); } catch {}
+  }, [allUsers, isLive]);
+
+  // ========== ACTIONS ==========
+
+  const followUser = useCallback(async (userId: string) => {
+    if (isLive) {
+      const supabase = getSupabase();
+      await supabase.from('follows').insert({ follower_id: authUser!.id, following_id: userId });
+      await supabase.from('notifications').insert({
+        user_id: userId,
+        actor_id: authUser!.id,
+        type: 'follow',
+        content: 'started following you',
+      });
+    }
+    setFollowing(prev => { const next = new Set(prev); next.add(userId); return next; });
+    if (!isLive) {
+      const target = mockUsers.find(u => u.id === userId);
+      if (target) {
+        setNotifications(prev => [{ id: `notif-follow-${Date.now()}`, type: 'follow' as const, actor: currentUser, content: 'started following', createdAt: new Date().toISOString(), read: true }, ...prev]);
+      }
+    }
+  }, [isLive, authUser, currentUser]);
+
+  const unfollowUser = useCallback(async (userId: string) => {
+    if (isLive) {
+      const supabase = getSupabase();
+      await supabase.from('follows').delete().eq('follower_id', authUser!.id).eq('following_id', userId);
+    }
+    setFollowing(prev => { const next = new Set(prev); next.delete(userId); return next; });
+  }, [isLive, authUser]);
+
+  const isFollowingUser = useCallback((userId: string) => following.has(userId), [following]);
+
+  const updateProfile = useCallback((updates: Partial<User>): boolean => {
+    if (updates.username) {
+      const taken = allUsers.some(u => u.username.toLowerCase() === updates.username!.toLowerCase() && u.id !== currentUser.id);
+      if (taken) return false;
+    }
+    if (isLive) {
+      const supabase = getSupabase();
+      const dbUpdates: any = {};
+      if (updates.displayName) dbUpdates.display_name = updates.displayName;
+      if (updates.username) dbUpdates.username = updates.username;
+      if (updates.bio !== undefined) dbUpdates.bio = updates.bio;
+      if (updates.avatar) dbUpdates.avatar = updates.avatar;
+      supabase.from('profiles').update(dbUpdates).eq('id', authUser!.id).then(() => {});
+    }
     setCurrentUser(prev => {
       const updated = { ...prev, ...updates };
-      try { localStorage.setItem('xbee_profile', JSON.stringify({ displayName: updated.displayName, username: updated.username, bio: updated.bio, avatar: updated.avatar })); } catch {}
-      // Update author on existing posts
-      setPosts(prevPosts => prevPosts.map(p =>
-        p.author.id === prev.id ? { ...p, author: updated } : p
-      ));
+      if (!isLive) {
+        try { localStorage.setItem('xbee_profile', JSON.stringify({ displayName: updated.displayName, username: updated.username, bio: updated.bio, avatar: updated.avatar })); } catch {}
+      }
+      setPosts(prevPosts => prevPosts.map(p => p.author.id === prev.id ? { ...p, author: updated } : p));
       return updated;
     });
-  }, []);
+    return true;
+  }, [currentUser.id, isLive, authUser, allUsers]);
 
-  const addPost = useCallback((content: string, media?: Post['media']) => {
-    const newPost: Post = {
-      id: generateId(),
-      author: currentUser,
-      content,
-      media,
-      likes: 0, reposts: 0, replies: 0, views: 0,
-      liked: false, reposted: false, bookmarked: false,
-      createdAt: new Date().toISOString(),
-      credibility: {
-        authorTrust: currentUser.trust.score,
-        contentScore: 80,
-        engagementQuality: 1.0,
-        viralityBrake: false,
-      },
-    };
-    setPosts(prev => [newPost, ...prev]);
-  }, [currentUser]);
+  const addPost = useCallback(async (content: string, media?: Post['media']) => {
+    if (isLive) {
+      const supabase = getSupabase();
+      await supabase.from('posts').insert({
+        author_id: authUser!.id,
+        content,
+        media: media ? JSON.parse(JSON.stringify(media)) : [],
+      });
+      // Realtime subscription will add it to state
+    } else {
+      const newPost: Post = {
+        id: generateId(),
+        author: currentUser,
+        content,
+        media,
+        likes: 0, reposts: 0, replies: 0, views: 0,
+        liked: false, reposted: false, bookmarked: false,
+        createdAt: new Date().toISOString(),
+        credibility: { authorTrust: currentUser.trust.score, contentScore: 80, engagementQuality: 1.0, viralityBrake: false },
+      };
+      setPosts(prev => [newPost, ...prev]);
+    }
+  }, [isLive, authUser, currentUser]);
 
-  const likePost = useCallback((postId: string) => {
-    setPosts(prev => prev.map(p =>
-      p.id === postId ? { ...p, liked: !p.liked, likes: p.liked ? p.likes - 1 : p.likes + 1 } : p
-    ));
-  }, []);
+  const likePost = useCallback(async (postId: string) => {
+    if (isLive) {
+      const supabase = getSupabase();
+      const isLiked = userInteractionsRef.current.liked.has(postId);
+      if (isLiked) {
+        await supabase.from('post_likes').delete().eq('user_id', authUser!.id).eq('post_id', postId);
+        await supabase.rpc('increment_post_likes', { p_id: postId, delta: -1 });
+        userInteractionsRef.current.liked.delete(postId);
+      } else {
+        await supabase.from('post_likes').insert({ user_id: authUser!.id, post_id: postId });
+        await supabase.rpc('increment_post_likes', { p_id: postId, delta: 1 });
+        userInteractionsRef.current.liked.add(postId);
+        // Create notification for post author
+        const post = posts.find(p => p.id === postId);
+        if (post && post.author.id !== authUser!.id) {
+          await supabase.from('notifications').insert({ user_id: post.author.id, actor_id: authUser!.id, type: 'like', content: 'liked your post', post_id: postId });
+        }
+      }
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, liked: !p.liked, likes: p.liked ? p.likes - 1 : p.likes + 1 } : p));
+    } else {
+      setPosts(prev => {
+        const post = prev.find(p => p.id === postId);
+        if (post && post.author.id !== currentUser.id && !post.liked) {
+          setNotifications(n => [{ id: `notif-like-${Date.now()}`, type: 'like' as const, actor: currentUser, content: 'liked your post', createdAt: new Date().toISOString(), read: false }, ...n]);
+        }
+        return prev.map(p => p.id === postId ? { ...p, liked: !p.liked, likes: p.liked ? p.likes - 1 : p.likes + 1 } : p);
+      });
+    }
+  }, [isLive, authUser, currentUser, posts]);
 
-  const repostPost = useCallback((postId: string) => {
-    setPosts(prev => prev.map(p =>
-      p.id === postId ? { ...p, reposted: !p.reposted, reposts: p.reposted ? p.reposts - 1 : p.reposts + 1 } : p
-    ));
-  }, []);
+  const repostPost = useCallback(async (postId: string) => {
+    if (isLive) {
+      const supabase = getSupabase();
+      const isReposted = userInteractionsRef.current.reposted.has(postId);
+      if (isReposted) {
+        await supabase.from('post_reposts').delete().eq('user_id', authUser!.id).eq('post_id', postId);
+        await supabase.rpc('increment_post_reposts', { p_id: postId, delta: -1 });
+        userInteractionsRef.current.reposted.delete(postId);
+      } else {
+        await supabase.from('post_reposts').insert({ user_id: authUser!.id, post_id: postId });
+        await supabase.rpc('increment_post_reposts', { p_id: postId, delta: 1 });
+        userInteractionsRef.current.reposted.add(postId);
+        const post = posts.find(p => p.id === postId);
+        if (post && post.author.id !== authUser!.id) {
+          await supabase.from('notifications').insert({ user_id: post.author.id, actor_id: authUser!.id, type: 'repost', content: 'reposted your post', post_id: postId });
+        }
+      }
+      setPosts(prev => prev.map(p => p.id === postId ? { ...p, reposted: !p.reposted, reposts: p.reposted ? p.reposts - 1 : p.reposts + 1 } : p));
+    } else {
+      setPosts(prev => {
+        const post = prev.find(p => p.id === postId);
+        if (post && post.author.id !== currentUser.id && !post.reposted) {
+          setNotifications(n => [{ id: `notif-repost-${Date.now()}`, type: 'repost' as const, actor: currentUser, content: 'reposted your post', createdAt: new Date().toISOString(), read: false }, ...n]);
+        }
+        return prev.map(p => p.id === postId ? { ...p, reposted: !p.reposted, reposts: p.reposted ? p.reposts - 1 : p.reposts + 1 } : p);
+      });
+    }
+  }, [isLive, authUser, currentUser, posts]);
 
-  const bookmarkPost = useCallback((postId: string) => {
-    setPosts(prev => prev.map(p =>
-      p.id === postId ? { ...p, bookmarked: !p.bookmarked } : p
-    ));
-  }, []);
+  const bookmarkPost = useCallback(async (postId: string) => {
+    if (isLive) {
+      const supabase = getSupabase();
+      const isBookmarked = userInteractionsRef.current.bookmarked.has(postId);
+      if (isBookmarked) {
+        await supabase.from('post_bookmarks').delete().eq('user_id', authUser!.id).eq('post_id', postId);
+        userInteractionsRef.current.bookmarked.delete(postId);
+      } else {
+        await supabase.from('post_bookmarks').insert({ user_id: authUser!.id, post_id: postId });
+        userInteractionsRef.current.bookmarked.add(postId);
+      }
+    }
+    setPosts(prev => {
+      const updated = prev.map(p => p.id === postId ? { ...p, bookmarked: !p.bookmarked } : p);
+      if (!isLive) {
+        try {
+          const bookmarkedIds = updated.filter(p => p.bookmarked).map(p => p.id);
+          localStorage.setItem('xbee_bookmarks', JSON.stringify(bookmarkedIds));
+        } catch {}
+      }
+      return updated;
+    });
+  }, [isLive, authUser]);
 
   const voteOnPoll = useCallback((postId: string, optionIndex: number) => {
     setPosts(prev => prev.map(p => {
       if (p.id !== postId || !p.poll || p.poll.voted) return p;
-      const newOptions = p.poll.options.map((opt, i) => ({
-        ...opt,
-        votes: i === optionIndex ? opt.votes + 1 : opt.votes,
-      }));
+      const newOptions = p.poll.options.map((opt, i) => ({ ...opt, votes: i === optionIndex ? opt.votes + 1 : opt.votes }));
       const totalVotes = newOptions.reduce((sum, o) => sum + o.votes, 0);
       return {
         ...p,
@@ -215,94 +625,87 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const viewPost = useCallback((postId: string) => {
-    setPosts(prev => prev.map(p =>
-      p.id === postId ? { ...p, views: p.views + 1 } : p
-    ));
-  }, []);
+  const [viewedPostIds] = useState<Set<string>>(new Set());
 
-  const getMessages = useCallback((convId: string) => {
-    return messageStore[convId] || [];
-  }, [messageStore]);
+  const viewPost = useCallback(async (postId: string) => {
+    if (viewedPostIds.has(postId)) return;
+    viewedPostIds.add(postId);
+    if (isLive) {
+      const supabase = getSupabase();
+      await supabase.from('post_views').insert({ user_id: authUser!.id, post_id: postId }).select().maybeSingle();
+      await supabase.rpc('increment_post_views', { p_id: postId });
+    }
+    setPosts(prev => prev.map(p => p.id === postId ? { ...p, views: p.views + 1 } : p));
+  }, [viewedPostIds, isLive, authUser]);
 
-  const sendMessage = useCallback((convId: string, content: string, ghostConfig?: { enabled: boolean; expiresIn: number }) => {
-    const msg: Message = {
-      id: `msg-${Date.now()}`,
-      senderId: currentUser.id,
-      content,
-      type: 'text',
-      createdAt: new Date().toISOString(),
-      read: false,
-      encrypted: true,
-      ...(ghostConfig?.enabled ? {
-        ghost: {
-          enabled: true,
-          expiresIn: ghostConfig.expiresIn,
-          expiresAt: new Date(Date.now() + ghostConfig.expiresIn * 1000).toISOString(),
-        },
-      } : {}),
-    };
-    setMessageStore(prev => ({
-      ...prev,
-      [convId]: [...(prev[convId] || []), msg],
-    }));
-    // Update conversation lastMessage
-    setConversations(prev => prev.map(c =>
-      c.id === convId ? { ...c, lastMessage: msg } : c
-    ));
-  }, [currentUser.id]);
+  const getMessages = useCallback((convId: string) => messageStore[convId] || [], [messageStore]);
+
+  const sendMessage = useCallback(async (convId: string, content: string, ghostConfig?: { enabled: boolean; expiresIn: number }) => {
+    if (isLive) {
+      const supabase = getSupabase();
+      await supabase.from('messages').insert({
+        conversation_id: convId,
+        sender_id: authUser!.id,
+        content,
+        type: 'text',
+        ghost_expires_at: ghostConfig?.enabled ? new Date(Date.now() + ghostConfig.expiresIn * 1000).toISOString() : null,
+      });
+      // Realtime subscription will add it
+    } else {
+      const msg: Message = {
+        id: `msg-${Date.now()}`,
+        senderId: currentUser.id,
+        content,
+        type: 'text',
+        createdAt: new Date().toISOString(),
+        read: false,
+        encrypted: true,
+        ...(ghostConfig?.enabled ? {
+          ghost: { enabled: true, expiresIn: ghostConfig.expiresIn, expiresAt: new Date(Date.now() + ghostConfig.expiresIn * 1000).toISOString() },
+        } : {}),
+      };
+      setMessageStore(prev => ({ ...prev, [convId]: [...(prev[convId] || []), msg] }));
+      setConversations(prev => prev.map(c => c.id === convId ? { ...c, lastMessage: msg } : c));
+    }
+  }, [isLive, authUser, currentUser]);
 
   const addReply = useCallback((convId: string, reply: Message) => {
-    setMessageStore(prev => ({
-      ...prev,
-      [convId]: [...(prev[convId] || []), reply],
-    }));
-    setConversations(prev => prev.map(c =>
-      c.id === convId ? { ...c, lastMessage: reply, unreadCount: 0 } : c
-    ));
+    setMessageStore(prev => ({ ...prev, [convId]: [...(prev[convId] || []), reply] }));
+    setConversations(prev => prev.map(c => c.id === convId ? { ...c, lastMessage: reply, unreadCount: 0 } : c));
   }, []);
 
-  // Persist system users
-  useEffect(() => {
-    try { localStorage.setItem('xbee_system_users', JSON.stringify(allUsers)); } catch {}
-  }, [allUsers]);
-
-  // Admin (God-mode) functions
+  // Admin functions
   const addSystemUser = useCallback((user: User) => {
-    setAllUsers(prev => {
-      if (prev.find(u => u.id === user.id)) return prev;
-      return [...prev, user];
-    });
+    setAllUsers(prev => { if (prev.find(u => u.id === user.id)) return prev; return [...prev, user]; });
   }, []);
 
   const deleteSystemUser = useCallback((userId: string) => {
     setAllUsers(prev => prev.filter(u => u.id !== userId));
-    // Also remove their posts
     setPosts(prev => prev.filter(p => p.author.id !== userId));
-    // Remove from auth storage
-    try {
-      const authUsers = JSON.parse(localStorage.getItem('xbee_users') || '[]');
-      localStorage.setItem('xbee_users', JSON.stringify(authUsers.filter((u: any) => u.username !== userId)));
-    } catch {}
-  }, []);
+    if (!isLive) {
+      try {
+        const authUsers = JSON.parse(localStorage.getItem('xbee_users') || '[]');
+        localStorage.setItem('xbee_users', JSON.stringify(authUsers.filter((u: any) => u.username !== userId)));
+      } catch {}
+    }
+  }, [isLive]);
 
   const updateUserInSystem = useCallback((userId: string, updates: Partial<User>) => {
     setAllUsers(prev => prev.map(u => u.id === userId ? { ...u, ...updates } : u));
-    // Update author references in posts
-    setPosts(prev => prev.map(p =>
-      p.author.id === userId ? { ...p, author: { ...p.author, ...updates } } : p
-    ));
+    setPosts(prev => prev.map(p => p.author.id === userId ? { ...p, author: { ...p.author, ...updates } } : p));
   }, []);
 
   const updatePostEngagement = useCallback((postId: string, updates: Partial<{ likes: number; reposts: number; replies: number; views: number }>) => {
-    setPosts(prev => prev.map(p =>
-      p.id === postId ? { ...p, ...updates } : p
-    ));
+    setPosts(prev => prev.map(p => p.id === postId ? { ...p, ...updates } : p));
   }, []);
 
-  const deletePostById = useCallback((postId: string) => {
+  const deletePostById = useCallback(async (postId: string) => {
+    if (isLive) {
+      const supabase = getSupabase();
+      await supabase.from('posts').delete().eq('id', postId);
+    }
     setPosts(prev => prev.filter(p => p.id !== postId));
-  }, []);
+  }, [isLive]);
 
   const addNotification = useCallback((notif: any) => {
     setNotifications(prev => [{
@@ -316,11 +719,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }, ...prev]);
   }, []);
 
-  const markNotificationRead = useCallback((id: string) => {
-    setNotifications(prev => prev.map(n =>
-      n.id === id ? { ...n, read: true } : n
-    ));
-  }, []);
+  const markNotificationRead = useCallback(async (id: string) => {
+    if (isLive) {
+      const supabase = getSupabase();
+      await supabase.from('notifications').update({ read: true }).eq('id', id);
+    }
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+  }, [isLive]);
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -329,18 +734,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!searchQuery.trim()) return { posts: [], users: [] };
     const q = searchQuery.toLowerCase();
     return {
-      posts: posts.filter(p =>
-        p.content.toLowerCase().includes(q) ||
-        p.author.displayName.toLowerCase().includes(q) ||
-        p.author.username.toLowerCase().includes(q)
-      ),
-      users: allUsers.filter(u =>
-        u.displayName.toLowerCase().includes(q) ||
-        u.username.toLowerCase().includes(q) ||
-        u.bio.toLowerCase().includes(q)
-      ),
+      posts: posts.filter(p => p.content.toLowerCase().includes(q) || p.author.displayName.toLowerCase().includes(q) || p.author.username.toLowerCase().includes(q)),
+      users: allUsers.filter(u => u.displayName.toLowerCase().includes(q) || u.username.toLowerCase().includes(q) || u.bio.toLowerCase().includes(q)),
     };
-  }, [searchQuery, posts]);
+  }, [searchQuery, posts, allUsers]);
 
   return (
     <AppContext.Provider value={{

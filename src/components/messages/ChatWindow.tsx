@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Send, Mic, Image, Sparkles, Shield, ArrowLeft,
@@ -14,6 +14,8 @@ import TrustBadge from '@/components/trust/TrustBadge';
 import { Message, User, Conversation } from '@/types';
 import { cn, formatTimeAgo } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
+import { getSupabase } from '@/lib/supabase';
 import Link from 'next/link';
 
 interface ChatWindowProps {
@@ -31,11 +33,14 @@ const GHOST_TIMERS = [
 
 export default function ChatWindow({ otherUser, conversation, onBack }: ChatWindowProps) {
   const { currentUser, getMessages, sendMessage: sendGlobalMsg, addReply } = useApp();
+  const { isSupabaseConfigured, user: authUser } = useAuth();
+  const isLive = isSupabaseConfigured && !!authUser;
   const convId = conversation?.id || '';
   const messages = getMessages(convId);
   const [input, setInput] = useState('');
   const [showAI, setShowAI] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
+  const [remoteTyping, setRemoteTyping] = useState(false);
   const [safeModeEnabled, setSafeModeEnabled] = useState(conversation?.safeMode ?? false);
   const [ghostMode, setGhostMode] = useState(false);
   const [ghostTimer, setGhostTimer] = useState(10);
@@ -50,11 +55,89 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
   const [translateActive, setTranslateActive] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [otherUserOnline, setOtherUserOnline] = useState(false);
   const recordInterval = useRef<NodeJS.Timeout | null>(null);
+  const typingTimeout = useRef<NodeJS.Timeout | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const isHighRisk = conversation?.riskLevel === 'warning';
   const hasScamAlerts = (conversation?.scamAlerts?.length ?? 0) > 0;
+
+  // Real-time typing indicator via Supabase Broadcast
+  useEffect(() => {
+    if (!isLive || !convId) return;
+    const supabase = getSupabase();
+
+    const channel = supabase.channel(`typing-${convId}`)
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        if (payload.payload?.userId !== authUser!.id) {
+          setRemoteTyping(true);
+          setTimeout(() => setRemoteTyping(false), 3000);
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [isLive, convId, authUser]);
+
+  // Check if other user is online
+  useEffect(() => {
+    if (!isLive) return;
+    const supabase = getSupabase();
+
+    async function checkOnline() {
+      const { data } = await supabase
+        .from('profiles')
+        .select('is_online')
+        .eq('id', otherUser.id)
+        .single<{ is_online: boolean }>();
+      if (data) setOtherUserOnline(data.is_online);
+    }
+    checkOnline();
+  }, [isLive, otherUser.id]);
+
+  // Send typing indicator
+  const sendTypingIndicator = useCallback(() => {
+    if (!isLive || !convId) return;
+    const supabase = getSupabase();
+    supabase.channel(`typing-${convId}`).send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { userId: authUser!.id },
+    });
+  }, [isLive, convId, authUser]);
+
+  // Ghost Mode: auto-delete expired messages
+  useEffect(() => {
+    if (!ghostMode) return;
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const msgs = getMessages(convId);
+      msgs.forEach((msg: Message) => {
+        if (msg.ghost?.enabled && msg.ghost.expiresIn) {
+          const sentAt = new Date(msg.createdAt).getTime();
+          if (now - sentAt > msg.ghost.expiresIn * 1000) {
+            // Remove expired ghost message by overwriting with system marker
+            // Using sendGlobalMsg to clear is destructive; instead filter on render
+          }
+        }
+      });
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [ghostMode, convId, getMessages]);
+
+  // Filter out expired ghost messages for display
+  const visibleMessages = messages.filter((msg: Message) => {
+    if (!msg.ghost?.enabled || !msg.ghost.expiresIn) return true;
+    const sentAt = new Date(msg.createdAt).getTime();
+    return Date.now() - sentAt <= msg.ghost.expiresIn * 1000;
+  });
+
+  // SafeMode: sanitize URLs in message content
+  const sanitizeContent = (content: string): string => {
+    if (!safeModeEnabled) return content;
+    return content.replace(/https?:\/\/[^\s]+/gi, '[link blocked]');
+  };
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -81,13 +164,28 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
     setRecordTime(0);
   };
 
+  // Cleanup recording interval on unmount
+  useEffect(() => {
+    return () => {
+      if (recordInterval.current) clearInterval(recordInterval.current);
+      if (typingTimeout.current) clearTimeout(typingTimeout.current);
+    };
+  }, []);
+
   const handleImageUpload = () => {
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
     fileInput.accept = 'image/*';
     fileInput.onchange = (e) => {
       const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) sendGlobalMsg(convId, `📷 Image: ${file.name}`);
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const base64 = reader.result as string;
+          sendGlobalMsg(convId, `📷 [image:${base64}]`);
+        };
+        reader.readAsDataURL(file);
+      }
     };
     fileInput.click();
   };
@@ -100,51 +198,58 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
     const sentInput = input;
     setInput('');
 
+    // In live mode, skip mock replies — real users will reply
+    if (isLive) return;
+
     setIsTyping(true);
     
-    // Use AI endpoint for smart responses
-    fetch('/api/ai/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: sentInput }),
-    })
-      .then(res => res.json())
-      .then(data => {
-        setIsTyping(false);
-        const reply: Message = {
-          id: `msg-${Date.now() + 1}`,
-          senderId: otherUser.id,
-          content: data.response || "That sounds great! Let me think about it.",
-          type: 'text',
-          createdAt: new Date().toISOString(),
-          read: false,
-          encrypted: true,
-        };
-        addReply(convId, reply);
-        if (data.suggestions) {
-          setDynamicSuggestions(data.suggestions);
-        }
-      })
-      .catch(() => {
-        setIsTyping(false);
-        const replies = [
-          "That's a great point! I'd love to explore that further.",
-          "Interesting perspective! Let me think on that and get back to you.",
-          "Love this idea! Can we jam on it later this week?",
-          "Thanks for sharing — really resonates with what I've been working on.",
-          "100% agree. The industry is moving fast and we need to stay ahead.",
-        ];
-        const reply: Message = {
-          id: `msg-${Date.now() + 1}`,
-          senderId: otherUser.id,
-          content: replies[Math.floor(Math.random() * replies.length)],
-          type: 'text',
-          createdAt: new Date().toISOString(),
-          read: false,
-          encrypted: true,
-        };
-        addReply(convId, reply);
-      });
+    // Contextual mock replies based on message content
+    const contextualReplies: Record<string, string[]> = {
+      question: [
+        "That's a great question! Let me think about it and get back to you.",
+        "Good point — I've been wondering about that too.",
+        "Hmm, I'd say it depends on the context. What do you think?",
+      ],
+      greeting: [
+        "Hey! Great to hear from you 😊",
+        "What's up! How's everything going?",
+        "Hey there! Perfect timing, I was just thinking about reaching out.",
+      ],
+      agreement: [
+        "100% agree. The industry is moving fast and we need to stay ahead.",
+        "Exactly! You read my mind on that one.",
+        "Couldn't have said it better myself.",
+      ],
+      default: [
+        "That's a great point! I'd love to explore that further.",
+        "Interesting perspective! Let me think on that and get back to you.",
+        "Love this idea! Can we jam on it later this week?",
+        "Thanks for sharing — really resonates with what I've been working on.",
+      ],
+    };
+
+    const getReplyType = (msg: string): string => {
+      if (msg.includes('?')) return 'question';
+      if (msg.length < 15) return 'greeting';
+      if (/agree|yes|right|exactly|true/i.test(msg)) return 'agreement';
+      return 'default';
+    };
+
+    setTimeout(() => {
+      setIsTyping(false);
+      const type = getReplyType(sentInput);
+      const replies = contextualReplies[type];
+      const reply: Message = {
+        id: `msg-${Date.now() + 1}`,
+        senderId: otherUser.id,
+        content: replies[Math.floor(Math.random() * replies.length)],
+        type: 'text',
+        createdAt: new Date().toISOString(),
+        read: false,
+        encrypted: true,
+      };
+      addReply(convId, reply);
+    }, 800 + Math.random() * 1200);
   };
 
   const aiSuggestions = dynamicSuggestions.length > 0 ? dynamicSuggestions : [
@@ -180,7 +285,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
             </motion.button>
           )}
           <Link href={`/profile?user=${otherUser.id}`}>
-            <Avatar name={otherUser.displayName} src={otherUser.avatar} verified={otherUser.verified} online />
+            <Avatar name={otherUser.displayName} src={otherUser.avatar} verified={otherUser.verified} online={isLive ? otherUserOnline : true} />
           </Link>
           <div>
             <div className="flex items-center gap-1.5">
@@ -194,7 +299,9 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
               />
             </div>
             <div className="flex items-center gap-1.5">
-              <span className="text-xs text-xbee-success">Online</span>
+              <span className={cn('text-xs', remoteTyping ? 'text-blue-400' : (otherUserOnline || !isLive) ? 'text-xbee-success' : 'text-theme-tertiary')}>
+                {remoteTyping ? 'Typing...' : (otherUserOnline || !isLive) ? 'Online' : 'Offline'}
+              </span>
               <Shield className="w-3 h-3 text-xbee-success" />
               <span className="text-xs text-xbee-success">Encrypted</span>
               {isHighRisk && (
@@ -412,7 +519,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
           </div>
         </div>
 
-        {messages.map((msg, idx) => {
+        {visibleMessages.map((msg, idx) => {
           const isMe = msg.senderId === currentUser.id;
           const isSystemWarning = msg.type === 'scam_warning';
           const hasScamFlag = !!msg.scamAlert;
@@ -468,7 +575,11 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
                   hasScamFlag && safeModeEnabled && 'opacity-60 blur-[1px]',
                   isGhost && 'border border-purple-500/30',
                 )}>
-                  <p className="text-[15px] leading-relaxed">{translateActive && !isMe ? `[Translated] ${msg.content}` : msg.content}</p>
+                  {msg.content.startsWith('📷 [image:') ? (
+                    <img src={msg.content.slice(10, -1)} alt="Shared image" className="max-w-[240px] rounded-lg" />
+                  ) : (
+                    <p className="text-[15px] leading-relaxed">{translateActive && !isMe ? `[Translated] ${sanitizeContent(msg.content)}` : sanitizeContent(msg.content)}</p>
+                  )}
                   <div className={cn(
                     'flex items-center justify-end gap-1.5 mt-1',
                     isMe ? 'text-blue-200' : 'text-theme-tertiary'
@@ -490,7 +601,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
 
         {/* Typing indicator */}
         <AnimatePresence>
-          {isTyping && (
+          {(isTyping || remoteTyping) && (
             <motion.div
               className="flex justify-start"
               initial={{ opacity: 0, y: 10 }}
@@ -573,7 +684,15 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
           <div className="relative flex-1">
             <input
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => {
+                setInput(e.target.value);
+                // Send typing indicator
+                if (isLive && e.target.value) {
+                  if (typingTimeout.current) clearTimeout(typingTimeout.current);
+                  sendTypingIndicator();
+                  typingTimeout.current = setTimeout(() => {}, 2000);
+                }
+              }}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
               placeholder={isBlocked ? '🚫 User blocked' : ghostMode ? '👻 Ghost message...' : 'Type a message...'}
               disabled={isBlocked}
@@ -639,7 +758,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
                 animate={callState === 'ringing' ? { boxShadow: ['0 0 0 0 rgba(59,130,246,0.3)', '0 0 0 20px rgba(59,130,246,0)', '0 0 0 0 rgba(59,130,246,0.3)'] } : {}}
                 transition={{ duration: 1.5, repeat: Infinity }}
               >
-                {otherUser.avatar ? <img src={otherUser.avatar} alt="" className="w-full h-full object-cover" /> :
+                {otherUser.avatar ? <img src={otherUser.avatar} alt={`${otherUser.displayName}'s avatar`} className="w-full h-full object-cover" /> :
                   <div className="w-full h-full bg-gradient-to-br from-xbee-primary to-xbee-secondary flex items-center justify-center text-white text-3xl font-bold">{otherUser.displayName[0]}</div>
                 }
               </motion.div>

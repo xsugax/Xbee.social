@@ -10,6 +10,7 @@ import {
 import Avatar from '@/components/ui/Avatar';
 import { mockCommunities, currentUser } from '@/lib/mockData';
 import { formatNumber, cn } from '@/lib/utils';
+import DemoBadge from '@/components/ui/DemoBadge';
 
 type CommunityTab = 'discover' | 'joined' | 'live';
 
@@ -88,7 +89,7 @@ export default function CommunitiesPage() {
 
   return (
     <div>
-      {/* Header */}
+      <DemoBadge />
       <div className="sticky top-0 z-30 glass">
         <div className="flex items-center justify-between px-4 py-3">
           <h1 className="text-xl font-bold text-theme-primary">Communities</h1>
@@ -222,7 +223,7 @@ export default function CommunitiesPage() {
       {/* Create Community Modal */}
       <AnimatePresence>
         {showCreate && (
-          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowCreate(false)}>
+          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Create community" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowCreate(false)}>
             <motion.div className="glass-card w-full max-w-md p-5" initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-lg font-bold text-theme-primary">Create Community</h3>

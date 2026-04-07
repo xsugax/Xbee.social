@@ -11,6 +11,7 @@ import {
 import { mockMonetization, currentUser, mockPosts } from '@/lib/mockData';
 import PostCard from '@/components/feed/PostCard';
 import { cn } from '@/lib/utils';
+import DemoBadge from '@/components/ui/DemoBadge';
 
 const statCards = [
   { label: 'Total Earnings', value: '$4,523.87', change: '+24.5%', positive: true, icon: DollarSign, gradient: 'from-emerald-500 to-green-600' },
@@ -65,6 +66,7 @@ export default function MonetizationPage() {
 
   return (
     <div>
+      <DemoBadge />
       <div className="sticky top-0 z-30 glass border-b border-theme">
         <div className="flex items-center justify-between px-4 py-3">
           <div>
@@ -195,7 +197,7 @@ export default function MonetizationPage() {
       {/* Modals */}
       <AnimatePresence>
         {showModal && (
-          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowModal(null); setWithdrawSuccess(false); }}>
+          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Withdraw funds" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => { setShowModal(null); setWithdrawSuccess(false); }}>
             <motion.div className="glass-card w-full max-w-md max-h-[80vh] overflow-y-auto" initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}>
 
               {/* Withdraw Modal */}
@@ -206,7 +208,7 @@ export default function MonetizationPage() {
                     <button onClick={() => { setShowModal(null); setWithdrawSuccess(false); }}><X className="w-5 h-5 text-theme-secondary" /></button>
                   </div>
                   {withdrawSuccess ? (
-                    <div className="text-center py-6">
+                    <div className="text-center py-6" role="status" aria-live="polite">
                       <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto mb-3" />
                       <p className="text-lg font-bold text-theme-primary">Withdrawal Initiated!</p>
                       <p className="text-sm text-theme-tertiary mt-1">${withdrawAmount} will be sent to your {withdrawMethod === 'bank' ? 'bank account' : withdrawMethod === 'paypal' ? 'PayPal' : 'crypto wallet'} within 2-3 business days.</p>

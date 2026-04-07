@@ -32,12 +32,36 @@ export default function PostComposer({ onPost }: PostComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const [lastPostTime, setLastPostTime] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('xbee_lastPostTime');
+      return saved ? parseInt(saved, 10) : 0;
+    }
+    return 0;
+  });
+  const [cooldownActive, setCooldownActive] = useState(false);
+  const [cooldownSeconds, setCooldownSeconds] = useState(0);
 
   const charCount = content.length;
   const charPercent = (charCount / MAX_CHARS) * 100;
 
   const handlePost = () => {
     if (content.trim() || mediaFiles.length > 0) {
+      const now = Date.now();
+      if (now - lastPostTime < 5000) {
+        const remaining = Math.ceil((5000 - (now - lastPostTime)) / 1000);
+        setCooldownSeconds(remaining);
+        setCooldownActive(true);
+        const countdown = setInterval(() => {
+          setCooldownSeconds(s => {
+            if (s <= 1) { clearInterval(countdown); setCooldownActive(false); return 0; }
+            return s - 1;
+          });
+        }, 1000);
+        return;
+      }
+      setLastPostTime(now);
+      try { localStorage.setItem('xbee_lastPostTime', now.toString()); } catch {}
       const mediaAttachments: MediaAttachment[] = mediaFiles.map((mf, i) => ({
         id: `upload-${Date.now()}-${i}`,
         type: mf.type,
@@ -178,7 +202,7 @@ export default function PostComposer({ onPost }: PostComposerProps) {
             onChange={handleTextareaChange}
             onFocus={() => setIsFocused(true)}
             placeholder="What's buzzing?"
-            className="w-full bg-transparent text-theme-primary text-lg placeholder:text-theme-tertiary resize-none outline-none min-h-[52px] max-h-[300px] py-2"
+            className="w-full bg-transparent text-theme-primary text-base sm:text-lg placeholder:text-theme-tertiary resize-none outline-none min-h-[52px] max-h-[200px] sm:max-h-[300px] overflow-y-auto py-2"
             rows={1}
           />
 
@@ -387,14 +411,14 @@ export default function PostComposer({ onPost }: PostComposerProps) {
               <motion.button
                 className={cn(
                   'xbee-button-primary py-2 px-5',
-                  !content.trim() && mediaFiles.length === 0 && 'opacity-50 pointer-events-none'
+                  (!content.trim() && mediaFiles.length === 0 || cooldownActive) && 'opacity-50 pointer-events-none'
                 )}
                 onClick={handlePost}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                disabled={!content.trim() && mediaFiles.length === 0}
+                disabled={(!content.trim() && mediaFiles.length === 0) || cooldownActive}
               >
-                Post
+                {cooldownActive ? `Wait (${cooldownSeconds}s)` : 'Post'}
               </motion.button>
             </div>
           </div>

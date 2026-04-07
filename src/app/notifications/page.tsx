@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Heart, Repeat2, MessageCircle, UserPlus, AtSign, Award,
@@ -38,6 +38,7 @@ export default function NotificationsPage() {
   const [filterType, setFilterType] = useState<string | null>(null);
   const [isMuted, setIsMuted] = useState(false);
   const muteTimerRef = React.useRef<NodeJS.Timeout | null>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const filteredNotifs = (() => {
     let filtered = activeTab === 'mentions'
@@ -113,7 +114,7 @@ export default function NotificationsPage() {
 
         <div className="flex border-b border-theme">
           {(['all', 'mentions', 'verified'] as NotifTab[]).map((tab) => (
-            <button key={tab} className="flex-1 py-3 relative transition-colors hover:bg-theme-hover" onClick={() => setActiveTab(tab)}>
+            <button key={tab} className="flex-1 py-3 relative transition-colors hover:bg-theme-hover" onClick={() => { setActiveTab(tab); scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}>
               <span className={`text-sm font-medium capitalize ${activeTab === tab ? 'text-theme-primary font-bold' : 'text-theme-tertiary'}`}>
                 {tab === 'verified' ? 'Verified' : tab}
               </span>
@@ -123,7 +124,7 @@ export default function NotificationsPage() {
         </div>
       </div>
 
-      <div>
+      <div ref={scrollContainerRef}>
         {filteredNotifs.length === 0 ? (
           <div className="text-center py-16">
             <Bell className="w-12 h-12 text-theme-tertiary mx-auto mb-3 opacity-40" />

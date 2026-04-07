@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, TrendingUp, ArrowUp, ArrowDown, Minus, Sparkles, Shield, PanelRightClose, PanelRightOpen, X } from 'lucide-react';
 import { formatNumber, cn } from '@/lib/utils';
@@ -16,10 +16,18 @@ export default function RightSidebar() {
   const { rightSidebarCollapsed, toggleRightSidebar } = useLayout();
   const { currentUser, posts, followUser, unfollowUser, isFollowing } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  const debounceTimer = useRef<NodeJS.Timeout>();
 
-  const searchResults = searchQuery.trim() ? {
-    users: mockUsers.filter(u => u.displayName.toLowerCase().includes(searchQuery.toLowerCase()) || u.username.toLowerCase().includes(searchQuery.toLowerCase())),
-    posts: posts.filter(p => p.content.toLowerCase().includes(searchQuery.toLowerCase())).slice(0, 3),
+  useEffect(() => {
+    clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(() => setDebouncedQuery(searchQuery), 300);
+    return () => clearTimeout(debounceTimer.current);
+  }, [searchQuery]);
+
+  const searchResults = debouncedQuery.trim() ? {
+    users: mockUsers.filter(u => u.displayName.toLowerCase().includes(debouncedQuery.toLowerCase()) || u.username.toLowerCase().includes(debouncedQuery.toLowerCase())),
+    posts: posts.filter(p => p.content.toLowerCase().includes(debouncedQuery.toLowerCase())).slice(0, 3),
   } : null;
 
   // Suggest users that currentUser is NOT following

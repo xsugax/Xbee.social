@@ -45,21 +45,22 @@ export default function MobileNav() {
         transition={{ type: 'spring', stiffness: 260, damping: 20 }}
       >
         <Feather className="w-6 h-6" />
+        <span className="sr-only">New post</span>
       </motion.button>
 
       {/* Mobile Compose Modal */}
       <AnimatePresence>
         {showCompose && (
-          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-start justify-center pt-[8vh] p-4 lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowCompose(false)}>
+          <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-start justify-center pt-[8vh] p-4 lg:hidden" role="dialog" aria-modal="true" aria-label="Compose post" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowCompose(false)}>
             <motion.div className="glass-card w-full max-w-lg" initial={{ scale: 0.95, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: -20 }} onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-theme">
-                <button className="p-1.5 rounded-full hover:bg-theme-hover" onClick={() => setShowCompose(false)}><X className="w-5 h-5 text-theme-secondary" /></button>
+                <button className="p-1.5 rounded-full hover:bg-theme-hover" onClick={() => setShowCompose(false)} aria-label="Close compose"><X className="w-5 h-5 text-theme-secondary" /></button>
                 <motion.button className={cn('xbee-button-primary py-2 px-5 text-sm', !composeText.trim() && 'opacity-50 pointer-events-none')} onClick={handlePost} whileTap={{ scale: 0.95 }} disabled={!composeText.trim()}>Post</motion.button>
               </div>
               <div className="p-4">
                 <div className="flex gap-3">
                   <div className="w-10 h-10 rounded-full bg-gradient-to-br from-xbee-primary to-xbee-secondary flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden">
-                    {currentUser.avatar ? <img src={currentUser.avatar} alt="" className="w-full h-full object-cover" /> : currentUser.displayName.charAt(0)}
+                    {currentUser.avatar ? <img src={currentUser.avatar} alt={`${currentUser.displayName}'s avatar`} className="w-full h-full object-cover" /> : currentUser.displayName.charAt(0)}
                   </div>
                   <textarea value={composeText} onChange={(e) => setComposeText(e.target.value)} placeholder="What's buzzing?" className="flex-1 bg-transparent text-theme-primary text-lg placeholder:text-theme-tertiary resize-none outline-none min-h-[120px]" autoFocus maxLength={25000} />
                 </div>

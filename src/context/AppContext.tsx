@@ -15,6 +15,13 @@ type NotifWithActor = NotificationRow & { actor: Profile | null };
 // Type for conv participant with joined profile
 type ParticipantWithProfile = { conversation_id: string; user_id: string; profiles: Profile | null };
 
+// Check if Supabase env vars are configured (NEXT_PUBLIC_ vars available at module level)
+const hasSupabaseEnv = !!(
+  process.env.NEXT_PUBLIC_SUPABASE_URL &&
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY &&
+  process.env.NEXT_PUBLIC_SUPABASE_URL !== 'your-project-url-here'
+);
+
 interface AppState {
   // Current user (editable)
   currentUser: User;
@@ -102,6 +109,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Current user: from Supabase profile or localStorage fallback
   const [currentUser, setCurrentUser] = useState<User>(defaultUser);
   const [posts, setPosts] = useState<Post[]>(() => {
+    if (hasSupabaseEnv) return []; // Supabase will populate via realtime
     if (typeof window === 'undefined') return mockPosts;
     try {
       const saved = localStorage.getItem('xbee_posts');
@@ -114,12 +122,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     } catch {}
     return mockPosts;
   });
-  const [conversations, setConversations] = useState<Conversation[]>(mockConversations);
-  const [messageStore, setMessageStore] = useState<Record<string, Message[]>>({
+  const [conversations, setConversations] = useState<Conversation[]>(hasSupabaseEnv ? [] : mockConversations);
+  const [messageStore, setMessageStore] = useState<Record<string, Message[]>>(hasSupabaseEnv ? {} : {
     'conv-1': mockMessages,
     'conv-4': mockScamMessages,
   });
   const [notifications, setNotifications] = useState<Notification[]>(() => {
+    if (hasSupabaseEnv) return []; // Supabase will populate
     if (typeof window === 'undefined') return mockNotifications;
     try {
       const saved = localStorage.getItem('xbee_notifications');
@@ -138,6 +147,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return [defaultUser, ...mockUsers];
   });
   const [following, setFollowing] = useState<Set<string>>(() => {
+    if (hasSupabaseEnv) return new Set(); // Supabase will populate
     if (typeof window === 'undefined') return new Set(['user-1', 'user-3', 'user-4', 'user-7', 'user-8']);
     try {
       const saved = localStorage.getItem('xbee_following');

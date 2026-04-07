@@ -2,7 +2,7 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Zap, Info, ArrowUp, Loader2 } from 'lucide-react';
+import { Shield, Zap, Info, ArrowUp, Loader2, Sparkles } from 'lucide-react';
 import PostComposer from './PostComposer';
 import PostCard from './PostCard';
 import { mockUsers } from '@/lib/mockData';
@@ -10,6 +10,7 @@ import { Post, FeedMode } from '@/types';
 import { useApp } from '@/context/AppContext';
 import { generateId, cn } from '@/lib/utils';
 import { useReducedMotion } from '@/lib/useReducedMotion';
+import { useAuth } from '@/context/AuthContext';
 
 function PostSkeleton() {
   return (
@@ -50,6 +51,7 @@ const POSTS_PER_PAGE = 10;
 
 export default function Feed() {
   const { posts, addPost } = useApp();
+  const { isSupabaseConfigured } = useAuth();
   const reduceMotion = useReducedMotion();
   const [feedMode, setFeedMode] = useState<FeedMode>('trusted');
   const [pendingPosts, setPendingPosts] = useState<Post[]>([]);
@@ -66,6 +68,7 @@ export default function Feed() {
   }, []);
 
   useEffect(() => {
+    if (isSupabaseConfigured) return; // No fake posts in live mode
     const interval = setInterval(() => {
       if (simIndexRef.current >= SIMULATED_POSTS.length) simIndexRef.current = 0;
       const sim = SIMULATED_POSTS[simIndexRef.current];
@@ -81,7 +84,7 @@ export default function Feed() {
       simIndexRef.current++;
     }, 15000);
     return () => clearInterval(interval);
-  }, []);
+  }, [isSupabaseConfigured]);
 
   const showPending = useCallback(() => {
     pendingPosts.forEach(p => addPost(p.content, p.media));
@@ -157,6 +160,14 @@ export default function Feed() {
       <div ref={feedTopRef}><PostComposer onPost={handlePost} /></div>
       {initialLoading ? (
         <div>{Array.from({ length: 5 }).map((_, i) => <PostSkeleton key={i} />)}</div>
+      ) : sortedPosts.length === 0 ? (
+        <div className="py-16 text-center px-6">
+          <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-theme-hover flex items-center justify-center">
+            <Sparkles className="w-7 h-7 text-theme-tertiary opacity-40" />
+          </div>
+          <h2 className="text-base font-bold text-theme-primary mb-1">Your feed is empty</h2>
+          <p className="text-sm text-theme-tertiary max-w-[260px] mx-auto">Follow people to see their posts here, or share something yourself!</p>
+        </div>
       ) : (
       <div>
         <AnimatePresence initial={false}>

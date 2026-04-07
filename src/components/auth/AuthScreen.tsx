@@ -206,17 +206,6 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
     }
   };
 
-  const fillTestAccount = () => {
-    if (isSupabaseConfigured) {
-      // No test accounts in Supabase mode
-      setError('Create a real account to get started!');
-      return;
-    }
-    setLoginId('test@xbee.com');
-    setPassword('test1234');
-    setMode('login');
-  };
-
   return (
     <div className="fixed inset-0 z-[9998] bg-[#06060e] flex items-center justify-center overflow-hidden">
       {/* Background */}
@@ -266,10 +255,6 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
               <motion.button className="w-full py-3.5 rounded-xl border border-white/10 text-white/70 font-medium text-sm mt-3 hover:bg-white/[0.03] transition-colors" onClick={() => setMode('login')} whileTap={{ scale: 0.98 }}>
                 Sign In
               </motion.button>
-
-              <button className="mt-6 text-[11px] text-white/15 hover:text-white/30 transition-colors underline underline-offset-2" onClick={fillTestAccount}>
-                Use test account
-              </button>
 
               <div className="mt-6 flex flex-col items-center gap-1.5">
                 <p className="text-[10px] text-white/[0.1] tracking-[0.25em] uppercase font-medium">Xbee Technologies</p>
@@ -355,14 +340,7 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
                 <button className="text-blue-400/70 hover:text-blue-400" onClick={() => { setMode('signup'); setError(''); }}>Create one</button>
               </p>
 
-              <div className="mt-6 p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">
-                <p className="text-[10px] text-white/20 text-center">
-                  {isSupabaseConfigured
-                    ? <span className="text-white/30 font-medium">Create an account to get started</span>
-                    : <><span className="text-white/30 font-medium">Test accounts:</span> test@xbee.com / test1234 &bull; alex@xbee.com / alex1234 &bull; demo / demo1234</>
-                  }
-                </p>
-              </div>
+
             </motion.div>
           )}
 

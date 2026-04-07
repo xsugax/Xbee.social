@@ -1,11 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import AuthScreen from '@/components/auth/AuthScreen';
 import LoadingScreen from '@/components/loading/LoadingScreen';
+import OnboardingScreen from '@/components/onboarding/OnboardingScreen';
 import { useAuth } from '@/context/AuthContext';
 
-type AppState = 'auth' | 'loading' | 'app';
+type AppState = 'auth' | 'loading' | 'onboarding' | 'app';
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const { profile, loading: authLoading, isSupabaseConfigured } = useAuth();
@@ -17,7 +18,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     if (isSupabaseConfigured) {
       // Supabase mode: rely on session
       if (profile) {
-        setState(prev => prev === 'app' ? 'app' : 'loading');
+        setState(prev => prev === 'app' || prev === 'onboarding' ? prev : 'loading');
       } else {
         setState('auth');
       }
@@ -36,15 +37,39 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     setState('loading');
   };
 
-  // When loading finishes, transition to app
+  // When loading finishes, check if onboarding needed
   useEffect(() => {
     if (state === 'loading') {
       const timer = setTimeout(() => {
-        setState('app');
+        let userId = 'local';
+        if (isSupabaseConfigured && profile) {
+          userId = profile.id;
+        } else {
+          try {
+            const session = JSON.parse(localStorage.getItem('xbee_session') || '{}');
+            userId = session.username || 'local';
+          } catch {}
+        }
+        const onboarded = localStorage.getItem(`xbee_onboarded_${userId}`);
+        setState(onboarded ? 'app' : 'onboarding');
       }, 3800);
       return () => clearTimeout(timer);
     }
-  }, [state]);
+  }, [state, profile, isSupabaseConfigured]);
+
+  const handleOnboardingComplete = useCallback(() => {
+    let userId = 'local';
+    if (isSupabaseConfigured && profile) {
+      userId = profile.id;
+    } else {
+      try {
+        const session = JSON.parse(localStorage.getItem('xbee_session') || '{}');
+        userId = session.username || 'local';
+      } catch {}
+    }
+    localStorage.setItem(`xbee_onboarded_${userId}`, 'true');
+    setState('app');
+  }, [isSupabaseConfigured, profile]);
 
   if (authLoading) {
     return <LoadingScreen />;
@@ -56,6 +81,10 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
   if (state === 'loading') {
     return <LoadingScreen />;
+  }
+
+  if (state === 'onboarding') {
+    return <OnboardingScreen onComplete={handleOnboardingComplete} />;
   }
 
   return <>{children}</>;

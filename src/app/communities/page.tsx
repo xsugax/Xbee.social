@@ -5,14 +5,33 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Users, Search, Plus, Radio, Shield, Sparkles, Hash, Mic,
   Lock, DollarSign, X, Check, Image, AlertCircle,
-  Crown, MessageSquare, ArrowRight
+  Crown, MessageSquare, ArrowRight, Loader2
 } from 'lucide-react';
 import Avatar from '@/components/ui/Avatar';
-import { mockCommunities, currentUser } from '@/lib/mockData';
+import { mockCommunities } from '@/lib/mockData';
 import { formatNumber, cn } from '@/lib/utils';
 import DemoBadge from '@/components/ui/DemoBadge';
+import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
+import { getSupabase } from '@/lib/supabase';
 
 type CommunityTab = 'discover' | 'joined' | 'live';
+
+interface Community {
+  id: string;
+  name: string;
+  description: string;
+  category: string;
+  members: number;
+  verified: boolean;
+  isLive: boolean;
+  liveParticipants: number;
+  trustRequired: number;
+  paidAccess: boolean;
+  price: number;
+  creator_id?: string;
+  is_private?: boolean;
+}
 
 function getJoinedIds(): string[] {
   try { return JSON.parse(localStorage.getItem('xbee_joined_communities') || '[]'); }
@@ -22,7 +41,27 @@ function saveJoinedIds(ids: string[]) {
   localStorage.setItem('xbee_joined_communities', JSON.stringify(ids));
 }
 
+function dbToCommunity(row: any): Community {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description || '',
+    category: row.category || 'General',
+    members: row.member_count || 1,
+    verified: row.verified || false,
+    isLive: row.is_live || false,
+    liveParticipants: row.live_participants || 0,
+    trustRequired: row.trust_required || 0,
+    paidAccess: row.paid_access || false,
+    price: row.price || 0,
+    creator_id: row.creator_id,
+    is_private: row.is_private,
+  };
+}
+
 export default function CommunitiesPage() {
+  const { currentUser } = useApp();
+  const { isSupabaseConfigured } = useAuth();
   const [activeTab, setActiveTab] = useState<CommunityTab>('discover');
   const [joinedIds, setJoinedIds] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -33,44 +72,100 @@ export default function CommunitiesPage() {
   const [createCategory, setCreateCategory] = useState('General');
   const [createPrivate, setCreatePrivate] = useState(false);
   const [createError, setCreateError] = useState('');
-  const [customCommunities, setCustomCommunities] = useState<any[]>([]);
+  const [customCommunities, setCustomCommunities] = useState<Community[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
 
+  // Load communities from Supabase or localStorage
   useEffect(() => {
-    setJoinedIds(getJoinedIds());
-    try { setCustomCommunities(JSON.parse(localStorage.getItem('xbee_custom_communities') || '[]')); } catch {}
-  }, []);
+    if (isSupabaseConfigured) {
+      setLoading(true);
+      const load = async () => {
+        try {
+          const supabase = getSupabase();
+          const { data: communities } = await supabase.from('communities').select('*').order('created_at', { ascending: false });
+          if (communities) setCustomCommunities(communities.map(dbToCommunity));
+          
+          // Load joined community IDs
+          const { data: memberships } = await supabase.from('community_members').select('community_id').eq('user_id', currentUser.id);
+          if (memberships) setJoinedIds(memberships.map(m => m.community_id));
+        } catch {}
+        setLoading(false);
+      };
+      load();
+    } else {
+      setJoinedIds(getJoinedIds());
+      try { setCustomCommunities(JSON.parse(localStorage.getItem('xbee_custom_communities') || '[]')); } catch {}
+    }
+  }, [isSupabaseConfigured, currentUser.id]);
 
-  const allCommunities = [...mockCommunities, ...customCommunities];
+  const allCommunities = isSupabaseConfigured ? customCommunities : [...(mockCommunities as Community[]), ...customCommunities];
 
-  const toggleJoin = useCallback((id: string) => {
-    setJoinedIds(prev => {
-      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
-      saveJoinedIds(next);
-      return next;
-    });
-  }, []);
+  const toggleJoin = useCallback(async (id: string) => {
+    if (isSupabaseConfigured) {
+      const supabase = getSupabase();
+      const isJoined = joinedIds.includes(id);
+      if (isJoined) {
+        setJoinedIds(prev => prev.filter(x => x !== id));
+        await supabase.from('community_members').delete().eq('community_id', id).eq('user_id', currentUser.id);
+      } else {
+        setJoinedIds(prev => [...prev, id]);
+        await supabase.from('community_members').insert({ community_id: id, user_id: currentUser.id, role: 'member' });
+      }
+    } else {
+      setJoinedIds(prev => {
+        const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id];
+        saveJoinedIds(next);
+        return next;
+      });
+    }
+  }, [isSupabaseConfigured, joinedIds, currentUser.id]);
 
-  const handleCreateCommunity = () => {
+  const handleCreateCommunity = async () => {
     setCreateError('');
     if (!createName.trim() || createName.trim().length < 3) { setCreateError('Name must be at least 3 characters'); return; }
     if (!createDesc.trim()) { setCreateError('Please add a description'); return; }
-    const newComm = {
-      id: `custom-${Date.now()}`,
-      name: createName.trim(),
-      description: createDesc.trim(),
-      category: createCategory,
-      members: 1,
-      verified: false,
-      isLive: false,
-      liveParticipants: 0,
-      trustRequired: 0,
-      paidAccess: false,
-      price: 0,
-    };
-    const updated = [...customCommunities, newComm];
-    setCustomCommunities(updated);
-    localStorage.setItem('xbee_custom_communities', JSON.stringify(updated));
-    setJoinedIds(prev => { const next = [...prev, newComm.id]; saveJoinedIds(next); return next; });
+
+    if (isSupabaseConfigured) {
+      setCreating(true);
+      try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase.from('communities').insert({
+          name: createName.trim(),
+          description: createDesc.trim(),
+          category: createCategory,
+          creator_id: currentUser.id,
+          is_private: createPrivate,
+          member_count: 1,
+        }).select().single();
+        if (error) { setCreateError(error.message); setCreating(false); return; }
+        if (data) {
+          // Auto-join as owner
+          await supabase.from('community_members').insert({ community_id: data.id, user_id: currentUser.id, role: 'owner' });
+          setCustomCommunities(prev => [dbToCommunity(data), ...prev]);
+          setJoinedIds(prev => [...prev, data.id]);
+        }
+      } catch (e: any) { setCreateError(e.message || 'Failed to create'); setCreating(false); return; }
+      setCreating(false);
+    } else {
+      const newComm: Community = {
+        id: `custom-${Date.now()}`,
+        name: createName.trim(),
+        description: createDesc.trim(),
+        category: createCategory,
+        members: 1,
+        verified: false,
+        isLive: false,
+        liveParticipants: 0,
+        trustRequired: 0,
+        paidAccess: false,
+        price: 0,
+      };
+      const updated = [...customCommunities, newComm];
+      setCustomCommunities(updated);
+      localStorage.setItem('xbee_custom_communities', JSON.stringify(updated));
+      setJoinedIds(prev => { const next = [...prev, newComm.id]; saveJoinedIds(next); return next; });
+    }
     setCreateName(''); setCreateDesc(''); setCreateCategory('General'); setCreatePrivate(false);
     setShowCreate(false);
   };
@@ -89,7 +184,13 @@ export default function CommunitiesPage() {
 
   return (
     <div>
-      <DemoBadge />
+      {!isSupabaseConfigured && <DemoBadge />}
+      {loading && (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-6 h-6 animate-spin text-xbee-primary" />
+        </div>
+      )}
+      {!loading && (<>
       <div className="sticky top-0 z-30 glass">
         <div className="flex items-center justify-between px-4 py-3">
           <h1 className="text-xl font-bold text-theme-primary">Communities</h1>
@@ -255,14 +356,15 @@ export default function CommunitiesPage() {
                     <div className={`w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform shadow-sm ${createPrivate ? 'translate-x-[22px]' : 'translate-x-0.5'}`} />
                   </div>
                 </div>
-                <motion.button className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold text-sm mt-2 flex items-center justify-center gap-2" onClick={handleCreateCommunity} whileTap={{ scale: 0.98 }}>
-                  <Plus className="w-4 h-4" /> Create Community
+                <motion.button className="w-full py-2.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold text-sm mt-2 flex items-center justify-center gap-2 disabled:opacity-50" onClick={handleCreateCommunity} whileTap={{ scale: 0.98 }} disabled={creating}>
+                  {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />} {creating ? 'Creating...' : 'Create Community'}
                 </motion.button>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
+      </>)}
     </div>
   );
 }

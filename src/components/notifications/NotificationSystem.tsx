@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useCallback } from 'react';
 import { useApp } from '@/context/AppContext';
+import { useAuth } from '@/context/AuthContext';
 
 // Generate bee buzz sound using Web Audio API
 function playBeeSound() {
@@ -98,6 +99,7 @@ const fakeUsers = ['Aisha Chen', 'Marcus Thompson', 'Elena Voss', 'James Wilson'
 
 export default function NotificationSystem() {
   const { addNotification } = useApp();
+  const { isSupabaseConfigured } = useAuth();
   const permissionRef = useRef<NotificationPermission>('default');
   const timerRef = useRef<NodeJS.Timeout>();
 
@@ -160,10 +162,13 @@ export default function NotificationSystem() {
     }
   }, [addNotification]);
 
-  // Start periodic simulated notifications (addictive engagement loop)
+  // Start periodic simulated notifications (demo mode only)
   useEffect(() => {
     requestPermission();
     registerSW();
+
+    // In live Supabase mode, only request permission — no fake notifications
+    if (isSupabaseConfigured) return;
 
     // First notification after 45s, then random intervals
     const scheduleNext = () => {
@@ -188,7 +193,7 @@ export default function NotificationSystem() {
       clearTimeout(initialTimer);
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [requestPermission, registerSW, sendNotification]);
+  }, [requestPermission, registerSW, sendNotification, isSupabaseConfigured]);
 
   return null; // Invisible component — runs in background
 }

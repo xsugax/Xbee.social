@@ -7,9 +7,12 @@ import PostCard from '@/components/feed/PostCard';
 import { mockTrends, mockUsers } from '@/lib/mockData';
 import { formatNumber, cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
+import { useAuth, profileToUser } from '@/context/AuthContext';
+import { getSupabase } from '@/lib/supabase';
 import Avatar from '@/components/ui/Avatar';
 import TrustBadge from '@/components/trust/TrustBadge';
 import Link from 'next/link';
+import { User } from '@/types';
 
 type ExploreTab = 'trending' | 'news' | 'tech' | 'entertainment' | 'sports';
 
@@ -23,27 +26,58 @@ const tabs: { id: ExploreTab; label: string }[] = [
 
 export default function ExplorePage() {
   const { posts, followUser, unfollowUser, isFollowing, currentUser } = useApp();
+  const { isSupabaseConfigured } = useAuth();
   const [activeTab, setActiveTab] = useState<ExploreTab>('trending');
   const [searchQuery, setSearchQuery] = useState('');
   const [visibleUsers, setVisibleUsers] = useState(5);
   const [visiblePosts, setVisiblePosts] = useState(10);
+  const [liveUsers, setLiveUsers] = useState<User[]>([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
+
+  // Search real profiles from Supabase
+  useEffect(() => {
+    if (!searchQuery.trim() || !isSupabaseConfigured) {
+      setLiveUsers([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(async () => {
+      setSearchingUsers(true);
+      try {
+        const supabase = getSupabase();
+        const q = `%${searchQuery.trim()}%`;
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .or(`username.ilike.${q},display_name.ilike.${q}`)
+          .neq('id', currentUser.id)
+          .limit(20);
+        if (!controller.signal.aborted && data) {
+          setLiveUsers(data.map(p => profileToUser(p as any)));
+        }
+      } catch {}
+      if (!controller.signal.aborted) setSearchingUsers(false);
+    }, 300);
+    return () => { controller.abort(); clearTimeout(timeout); };
+  }, [searchQuery, isSupabaseConfigured, currentUser.id]);
 
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return null;
     const q = searchQuery.toLowerCase();
+    const userResults = isSupabaseConfigured ? liveUsers : mockUsers.filter(u =>
+      u.displayName.toLowerCase().includes(q) ||
+      u.username.toLowerCase().includes(q) ||
+      u.bio.toLowerCase().includes(q)
+    );
     return {
-      users: mockUsers.filter(u =>
-        u.displayName.toLowerCase().includes(q) ||
-        u.username.toLowerCase().includes(q) ||
-        u.bio.toLowerCase().includes(q)
-      ),
+      users: userResults,
       posts: posts.filter(p =>
         p.content.toLowerCase().includes(q) ||
         p.author.displayName.toLowerCase().includes(q) ||
         p.author.username.toLowerCase().includes(q)
       ),
     };
-  }, [searchQuery, posts]);
+  }, [searchQuery, posts, isSupabaseConfigured, liveUsers]);
 
   const hasResults = searchResults && (searchResults.users.length > 0 || searchResults.posts.length > 0);
 

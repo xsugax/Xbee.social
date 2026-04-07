@@ -382,6 +382,95 @@ export interface Database {
           }
         ];
       };
+      communities: {
+        Row: {
+          id: string;
+          name: string;
+          description: string;
+          category: string;
+          creator_id: string;
+          is_private: boolean;
+          trust_required: number;
+          member_count: number;
+          is_live: boolean;
+          live_participants: number;
+          paid_access: boolean;
+          price: number;
+          verified: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          description?: string;
+          category?: string;
+          creator_id: string;
+          is_private?: boolean;
+          trust_required?: number;
+          member_count?: number;
+          is_live?: boolean;
+          live_participants?: number;
+          paid_access?: boolean;
+          price?: number;
+          verified?: boolean;
+          created_at?: string;
+        };
+        Update: {
+          name?: string;
+          description?: string;
+          category?: string;
+          is_private?: boolean;
+          trust_required?: number;
+          member_count?: number;
+          is_live?: boolean;
+          live_participants?: number;
+          paid_access?: boolean;
+          price?: number;
+          verified?: boolean;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "communities_creator_id_fkey";
+            columns: ["creator_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      community_members: {
+        Row: {
+          community_id: string;
+          user_id: string;
+          role: string;
+          joined_at: string;
+        };
+        Insert: {
+          community_id: string;
+          user_id: string;
+          role?: string;
+          joined_at?: string;
+        };
+        Update: {
+          role?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "community_members_community_id_fkey";
+            columns: ["community_id"];
+            isOneToOne: false;
+            referencedRelation: "communities";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "community_members_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
     };
     Views: {
       [_ in never]: never;

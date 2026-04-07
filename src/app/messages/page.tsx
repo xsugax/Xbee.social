@@ -1,21 +1,55 @@
 ﻿'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Settings, PenSquare, Mail, X, UserPlus } from 'lucide-react';
+import { Search, Settings, PenSquare, Mail, X, UserPlus, Loader2 } from 'lucide-react';
 import ChatList from '@/components/messages/ChatList';
 import ChatWindow from '@/components/messages/ChatWindow';
 import Avatar from '@/components/ui/Avatar';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
+import { useAuth, profileToUser } from '@/context/AuthContext';
+import { getSupabase } from '@/lib/supabase';
 import { mockUsers } from '@/lib/mockData';
+import { User } from '@/types';
 
 export default function MessagesPage() {
   const { conversations, currentUser, activeConvId, setActiveConvId } = useApp();
+  const { isSupabaseConfigured } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewMsg, setShowNewMsg] = useState(false);
   const [newMsgSearch, setNewMsgSearch] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [liveUsers, setLiveUsers] = useState<User[]>([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
+  const [startingConvo, setStartingConvo] = useState<string | null>(null);
+
+  // Search real profiles for new message
+  useEffect(() => {
+    if (!showNewMsg || !isSupabaseConfigured || !newMsgSearch.trim()) {
+      setLiveUsers([]);
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(async () => {
+      setSearchingUsers(true);
+      try {
+        const supabase = getSupabase();
+        const q = `%${newMsgSearch.trim()}%`;
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .or(`username.ilike.${q},display_name.ilike.${q}`)
+          .neq('id', currentUser.id)
+          .limit(15);
+        if (!controller.signal.aborted && data) {
+          setLiveUsers(data.map(p => profileToUser(p as any)));
+        }
+      } catch {}
+      if (!controller.signal.aborted) setSearchingUsers(false);
+    }, 300);
+    return () => { controller.abort(); clearTimeout(timeout); };
+  }, [newMsgSearch, showNewMsg, isSupabaseConfigured, currentUser.id]);
 
   const filteredConvs = searchQuery.trim()
     ? conversations.filter(c => c.participants.some(p => p.displayName.toLowerCase().includes(searchQuery.toLowerCase())))
@@ -24,21 +58,50 @@ export default function MessagesPage() {
   const activeConv = conversations.find(c => c.id === activeConvId);
   const otherUser = activeConv?.participants.find(p => p.id !== currentUser.id);
 
-  // Filter users for new message (exclude those with existing conversations)
+  // Users to show in new message modal
   const existingUserIds = new Set(conversations.flatMap(c => c.participants.map(p => p.id)));
-  const newMsgUsers = mockUsers.filter(u =>
-    u.id !== currentUser.id &&
-    (newMsgSearch.trim() === '' || u.displayName.toLowerCase().includes(newMsgSearch.toLowerCase()) || u.username.toLowerCase().includes(newMsgSearch.toLowerCase()))
-  );
+  const newMsgUsers = isSupabaseConfigured
+    ? (newMsgSearch.trim() ? liveUsers : [])
+    : mockUsers.filter(u =>
+        u.id !== currentUser.id &&
+        (newMsgSearch.trim() === '' || u.displayName.toLowerCase().includes(newMsgSearch.toLowerCase()) || u.username.toLowerCase().includes(newMsgSearch.toLowerCase()))
+      );
 
-  const startConversation = (userId: string) => {
-    // Find existing conversation or use the first one as demo
-    const existing = conversations.find(c => c.participants.some(p => p.id === userId));
-    if (existing) {
-      setActiveConvId(existing.id);
+  const startConversation = async (userId: string) => {
+    if (isSupabaseConfigured) {
+      setStartingConvo(userId);
+      try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase.rpc('get_or_create_dm', {
+          user1_id: currentUser.id,
+          user2_id: userId,
+        });
+        if (!error && data) {
+          // Check if conversation already in state
+          const existing = conversations.find(c => c.id === data);
+          if (existing) {
+            setActiveConvId(data);
+          } else {
+            // Fetch the new conversation participants
+            const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
+            const otherUserProfile = profile ? profileToUser(profile as any) : null;
+            if (otherUserProfile) {
+              // Add to conversations state temporarily — the real-time effect will sync
+              setActiveConvId(data);
+            }
+          }
+          // Force reload conversations by toggling active
+          setActiveConvId(data);
+        }
+      } catch {}
+      setStartingConvo(null);
     } else {
-      // Navigate to first conversation as placeholder
-      if (conversations.length > 0) setActiveConvId(conversations[0].id);
+      const existing = conversations.find(c => c.participants.some(p => p.id === userId));
+      if (existing) {
+        setActiveConvId(existing.id);
+      } else if (conversations.length > 0) {
+        setActiveConvId(conversations[0].id);
+      }
     }
     setShowNewMsg(false);
     setNewMsgSearch('');
@@ -131,7 +194,16 @@ export default function MessagesPage() {
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto">
-                {newMsgUsers.length === 0 ? (
+                {searchingUsers ? (
+                  <div className="text-center py-8">
+                    <Loader2 className="w-5 h-5 animate-spin text-theme-tertiary mx-auto mb-2" />
+                    <p className="text-sm text-theme-tertiary">Searching...</p>
+                  </div>
+                ) : isSupabaseConfigured && !newMsgSearch.trim() ? (
+                  <div className="text-center py-8 px-4">
+                    <p className="text-sm text-theme-tertiary">Search for a person to message</p>
+                  </div>
+                ) : newMsgUsers.length === 0 ? (
                   <div className="text-center py-8">
                     <p className="text-sm text-theme-tertiary">No users found</p>
                   </div>
@@ -150,7 +222,7 @@ export default function MessagesPage() {
                           <p className="font-bold text-sm text-theme-primary truncate">{user.displayName}</p>
                           <p className="text-xs text-theme-tertiary">@{user.username}</p>
                         </div>
-                        {hasExisting && <span className="text-[10px] px-2 py-0.5 rounded-full bg-xbee-primary/10 text-xbee-primary font-bold">Existing</span>}
+                        {startingConvo === user.id ? <Loader2 className="w-4 h-4 animate-spin text-xbee-primary shrink-0" /> : hasExisting && <span className="text-[10px] px-2 py-0.5 rounded-full bg-xbee-primary/10 text-xbee-primary font-bold">Existing</span>}
                       </motion.button>
                     );
                   })

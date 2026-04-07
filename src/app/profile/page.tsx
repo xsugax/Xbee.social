@@ -33,11 +33,13 @@ function ProfileContent() {
 
   const [activeTab, setActiveTab] = useState<ProfileTab>('posts');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const coverKey = `xbee_cover_${currentUser.id}`;
+  const avatarKey = `xbee_avatar_${currentUser.id}`;
   const [coverImage, setCoverImage] = useState<string | null>(() => {
-    try { return localStorage.getItem('xbee_cover_image'); } catch { return null; }
+    try { return localStorage.getItem(coverKey); } catch { return null; }
   });
   const [avatarImage, setAvatarImage] = useState<string | null>(() => {
-    try { return localStorage.getItem('xbee_avatar_image') || displayUser.avatar || null; } catch { return displayUser.avatar || null; }
+    try { return localStorage.getItem(avatarKey) || displayUser.avatar || null; } catch { return displayUser.avatar || null; }
   });
   const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState(currentUser.displayName);
@@ -72,7 +74,7 @@ function ProfileContent() {
       reader.onload = (evt) => {
         const base64 = evt.target?.result as string;
         setCoverImage(base64);
-        try { localStorage.setItem('xbee_cover_image', base64); } catch {}
+        try { localStorage.setItem(coverKey, base64); } catch {}
       };
       reader.readAsDataURL(file);
     }
@@ -87,7 +89,7 @@ function ProfileContent() {
         const base64 = evt.target?.result as string;
         setAvatarImage(base64);
         updateProfile({ avatar: base64 });
-        try { localStorage.setItem('xbee_avatar_image', base64); } catch {}
+        try { localStorage.setItem(avatarKey, base64); } catch {}
       };
       reader.readAsDataURL(file);
     }

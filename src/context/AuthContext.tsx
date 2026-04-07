@@ -11,7 +11,7 @@ interface AuthState {
   profile: User | null;
   session: Session | null;
   loading: boolean;
-  signUp: (email: string, password: string, username: string, displayName: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string, username: string, displayName: string) => Promise<{ error?: string; needsConfirmation?: boolean }>;
   signIn: (emailOrUsername: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<boolean>;
@@ -158,6 +158,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
 
     if (error) return { error: error.message };
+
+    // If Supabase requires email confirmation, session will be null
+    if (data.user && !data.session) {
+      return { needsConfirmation: true };
+    }
+
     if (data.user) {
       await fetchProfile(data.user.id);
     }

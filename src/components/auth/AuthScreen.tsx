@@ -68,6 +68,7 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
+  const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false);
   const [generatedCode, setGeneratedCode] = useState('');
 
   useEffect(() => { if (!isSupabaseConfigured) ensureDefaultUsers(); }, [isSupabaseConfigured]);
@@ -131,11 +132,20 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
 
     if (isSupabaseConfigured) {
-      // Supabase signup — go straight through
+      // Supabase signup
       setLoading(true);
-      const { error: err } = await signUp(trimEmail, password, trimUsername, trimName);
+      const result = await signUp(trimEmail, password, trimUsername, trimName);
       setLoading(false);
-      if (err) { setError(err); return; }
+      if (result.error) { setError(result.error); return; }
+
+      if (result.needsConfirmation) {
+        // Email confirmation required
+        setNeedsEmailConfirm(true);
+        setMode('verify');
+        return;
+      }
+
+      // Auto-confirmed — proceed directly
       setSignupSuccess(true);
       setMode('verify');
       setTimeout(() => onAuth(), 1500);
@@ -443,6 +453,25 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
                   </div>
                   <h2 className="text-2xl font-black text-white mb-2">Welcome to Xbee!</h2>
                   <p className="text-sm text-white/40">Account created successfully. Redirecting...</p>
+                </motion.div>
+              ) : needsEmailConfirm ? (
+                <motion.div className="text-center" initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
+                  <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500/20 to-blue-600/10 border border-blue-500/20 flex items-center justify-center mx-auto mb-6">
+                    <Mail className="w-7 h-7 text-blue-400" />
+                  </div>
+                  <h2 className="text-2xl font-black text-white mb-2">Check Your Email</h2>
+                  <p className="text-sm text-white/40 mb-1">We sent a confirmation link to</p>
+                  <p className="text-sm text-blue-400 font-medium mb-6">{email}</p>
+                  <p className="text-xs text-white/25 mb-8 max-w-[260px] mx-auto leading-relaxed">Click the link in the email to activate your account, then come back and sign in.</p>
+                  <motion.button
+                    className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold text-sm shadow-lg shadow-blue-600/20 flex items-center justify-center gap-2"
+                    onClick={() => { setMode('login'); setLoginId(email); setNeedsEmailConfirm(false); setError(''); }}
+                    whileHover={{ scale: 1.01 }}
+                    whileTap={{ scale: 0.98 }}
+                  >
+                    Go to Sign In <ArrowRight className="w-4 h-4" />
+                  </motion.button>
+                  <p className="text-[10px] text-white/15 mt-4">Didn&apos;t get an email? Check your spam folder.</p>
                 </motion.div>
               ) : (
                 <>

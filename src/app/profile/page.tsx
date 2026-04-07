@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef, useMemo, Suspense } from 'react';
+import React, { useState, useRef, useMemo, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -15,6 +15,9 @@ import PostCard from '@/components/feed/PostCard';
 import { mockInviteCodes, mockUsers } from '@/lib/mockData';
 import { formatNumber, cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
+import { useAuth, profileToUser } from '@/context/AuthContext';
+import { getSupabase } from '@/lib/supabase';
+import { User } from '@/types';
 
 type ProfileTab = 'posts' | 'replies' | 'media' | 'likes';
 
@@ -22,11 +25,26 @@ function ProfileContent() {
   const searchParams = useSearchParams();
   const userId = searchParams.get('user');
   const { currentUser, posts, updateProfile, followUser, unfollowUser, isFollowing: checkFollowing } = useApp();
+  const { isSupabaseConfigured } = useAuth();
+  const [fetchedUser, setFetchedUser] = useState<User | null>(null);
+
+  // Fetch other user's profile from Supabase
+  useEffect(() => {
+    if (!userId || userId === currentUser.id || !isSupabaseConfigured) { setFetchedUser(null); return; }
+    (async () => {
+      try {
+        const supabase = getSupabase();
+        const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+        if (data) setFetchedUser(profileToUser(data as any));
+      } catch {}
+    })();
+  }, [userId, currentUser.id, isSupabaseConfigured]);
 
   const displayUser = useMemo(() => {
     if (!userId || userId === currentUser.id) return currentUser;
+    if (isSupabaseConfigured) return fetchedUser || currentUser;
     return mockUsers.find(u => u.id === userId) || currentUser;
-  }, [userId, currentUser]);
+  }, [userId, currentUser, isSupabaseConfigured, fetchedUser]);
 
   const isOwnProfile = displayUser.id === currentUser.id;
   const isFollowingUser = checkFollowing ? checkFollowing(displayUser.id) : false;

@@ -48,6 +48,7 @@ interface AppState {
 
   // Conversations & Messages (synced)
   conversations: Conversation[];
+  loadConversations: () => Promise<void>;
   getMessages: (convId: string) => Message[];
   sendMessage: (convId: string, content: string, ghostConfig?: { enabled: boolean; expiresIn: number }) => void;
   addReply: (convId: string, reply: Message) => void;
@@ -301,78 +302,74 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [isLive, authUser, currentUser]);
 
   // ========== SUPABASE: Load conversations ==========
-  useEffect(() => {
-    if (!isLive) return;
+  const loadConversations = useCallback(async () => {
+    if (!isLive || !authUser) return;
     const supabase = getSupabase();
 
-    async function loadConversations() {
-      const { data: participations } = await supabase
-        .from('conversation_participants')
-        .select('conversation_id')
-        .eq('user_id', authUser!.id);
+    const { data: participations } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('user_id', authUser.id);
 
-      if (!participations || participations.length === 0) return;
+    if (!participations || participations.length === 0) { setConversations([]); return; }
 
-      const convIds = participations.map(p => p.conversation_id);
-      const { data: convos } = await supabase
-        .from('conversations')
+    const convIds = participations.map(p => p.conversation_id);
+    const { data: convos } = await supabase
+      .from('conversations')
+      .select('*')
+      .in('id', convIds)
+      .order('updated_at', { ascending: false });
+
+    if (!convos) return;
+
+    const { data: allParticipants } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id, user_id, profiles!conversation_participants_user_id_fkey(*)')
+      .in('conversation_id', convIds) as unknown as { data: ParticipantWithProfile[] | null };
+
+    const appConvos: Conversation[] = await Promise.all(convos.map(async (c) => {
+      const participants = (allParticipants || [])
+        .filter(p => p.conversation_id === c.id)
+        .map(p => p.profiles ? profileToUser(p.profiles as any) : currentUser);
+
+      const { data: lastMsg } = await supabase
+        .from('messages')
         .select('*')
-        .in('id', convIds)
-        .order('updated_at', { ascending: false });
+        .eq('conversation_id', c.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .single();
 
-      if (!convos) return;
+      const lastMessage: Message = lastMsg ? {
+        id: lastMsg.id,
+        senderId: lastMsg.sender_id,
+        content: lastMsg.content,
+        type: lastMsg.type as any,
+        createdAt: lastMsg.created_at,
+        read: true,
+        encrypted: true,
+      } : {
+        id: 'empty', senderId: '', content: 'No messages yet', type: 'system', createdAt: c.created_at, read: true, encrypted: false,
+      };
 
-      // Get participants for each conversation
-      const { data: allParticipants } = await supabase
-        .from('conversation_participants')
-        .select('conversation_id, user_id, profiles!conversation_participants_user_id_fkey(*)')
-        .in('conversation_id', convIds) as unknown as { data: ParticipantWithProfile[] | null };
+      return {
+        id: c.id,
+        participants,
+        lastMessage,
+        unreadCount: 0,
+        pinned: false,
+        muted: false,
+        encrypted: true,
+        safeMode: false,
+        riskLevel: 'safe' as const,
+        scamAlerts: [],
+      };
+    }));
 
-      // Get last message for each conversation
-      const appConvos: Conversation[] = await Promise.all(convos.map(async (c) => {
-        const participants = (allParticipants || [])
-          .filter(p => p.conversation_id === c.id)
-          .map(p => p.profiles ? profileToUser(p.profiles as any) : currentUser);
-
-        const { data: lastMsg } = await supabase
-          .from('messages')
-          .select('*')
-          .eq('conversation_id', c.id)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-
-        const lastMessage: Message = lastMsg ? {
-          id: lastMsg.id,
-          senderId: lastMsg.sender_id,
-          content: lastMsg.content,
-          type: lastMsg.type as any,
-          createdAt: lastMsg.created_at,
-          read: true,
-          encrypted: true,
-        } : {
-          id: 'empty', senderId: '', content: 'No messages yet', type: 'system', createdAt: c.created_at, read: true, encrypted: false,
-        };
-
-        return {
-          id: c.id,
-          participants,
-          lastMessage,
-          unreadCount: 0,
-          pinned: false,
-          muted: false,
-          encrypted: true,
-          safeMode: false,
-          riskLevel: 'safe' as const,
-          scamAlerts: [],
-        };
-      }));
-
-      setConversations(appConvos);
-    }
-
-    loadConversations();
+    setConversations(appConvos);
   }, [isLive, authUser, currentUser]);
+
+  useEffect(() => { loadConversations(); }, [loadConversations]);
 
   // ========== SUPABASE: Real-time messages for active conversation ==========
   useEffect(() => {
@@ -754,7 +751,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       currentUser, updateProfile,
       posts, addPost, likePost, repostPost, bookmarkPost, voteOnPoll, viewPost,
       followUser, unfollowUser, isFollowing: isFollowingUser, following,
-      conversations, getMessages, sendMessage, addReply, activeConvId, setActiveConvId,
+      conversations, loadConversations, getMessages, sendMessage, addReply, activeConvId, setActiveConvId,
       notifications, addNotification, markNotificationRead, unreadCount,
       searchQuery, setSearchQuery, searchResults,
       allUsers, addSystemUser, deleteSystemUser, updateUserInSystem,

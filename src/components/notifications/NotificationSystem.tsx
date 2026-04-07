@@ -4,80 +4,63 @@ import { useEffect, useRef, useCallback } from 'react';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 
-// Generate bee buzz sound using Web Audio API
-function playBeeSound() {
+// Soft, satisfying notification chime using Web Audio API
+function playNotificationSound() {
   try {
     const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const now = ctx.currentTime;
 
-    // Buzz oscillator 1
-    const osc1 = ctx.createOscillator();
-    osc1.type = 'sawtooth';
-    osc1.frequency.setValueAtTime(180, ctx.currentTime);
-    osc1.frequency.exponentialRampToValueAtTime(220, ctx.currentTime + 0.1);
-    osc1.frequency.exponentialRampToValueAtTime(160, ctx.currentTime + 0.2);
-    osc1.frequency.exponentialRampToValueAtTime(200, ctx.currentTime + 0.3);
+    // Warm sine tone — gentle "pop" note (C6 → E6 slide)
+    const tone = ctx.createOscillator();
+    tone.type = 'sine';
+    tone.frequency.setValueAtTime(1047, now);          // C6
+    tone.frequency.exponentialRampToValueAtTime(1319, now + 0.08); // slide to E6
 
-    // Buzz oscillator 2 (slightly detuned for richness)
-    const osc2 = ctx.createOscillator();
-    osc2.type = 'sawtooth';
-    osc2.frequency.setValueAtTime(185, ctx.currentTime);
-    osc2.frequency.exponentialRampToValueAtTime(225, ctx.currentTime + 0.1);
-    osc2.frequency.exponentialRampToValueAtTime(165, ctx.currentTime + 0.2);
-    osc2.frequency.exponentialRampToValueAtTime(205, ctx.currentTime + 0.3);
+    const toneGain = ctx.createGain();
+    toneGain.gain.setValueAtTime(0, now);
+    toneGain.gain.linearRampToValueAtTime(0.12, now + 0.015);  // quick fade in
+    toneGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25); // soft decay
 
-    // High frequency wing flutter
-    const flutter = ctx.createOscillator();
-    flutter.type = 'sine';
-    flutter.frequency.setValueAtTime(600, ctx.currentTime);
-    flutter.frequency.linearRampToValueAtTime(400, ctx.currentTime + 0.35);
+    // Subtle harmonic shimmer (an octave above, very quiet)
+    const shimmer = ctx.createOscillator();
+    shimmer.type = 'sine';
+    shimmer.frequency.setValueAtTime(2093, now);       // C7
+    shimmer.frequency.exponentialRampToValueAtTime(2637, now + 0.08); // E7
 
-    // Gain envelopes
-    const gain1 = ctx.createGain();
-    gain1.gain.setValueAtTime(0, ctx.currentTime);
-    gain1.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.03);
-    gain1.gain.linearRampToValueAtTime(0.12, ctx.currentTime + 0.15);
-    gain1.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.35);
+    const shimmerGain = ctx.createGain();
+    shimmerGain.gain.setValueAtTime(0, now);
+    shimmerGain.gain.linearRampToValueAtTime(0.04, now + 0.02);
+    shimmerGain.gain.exponentialRampToValueAtTime(0.001, now + 0.18);
 
-    const gain2 = ctx.createGain();
-    gain2.gain.setValueAtTime(0, ctx.currentTime);
-    gain2.gain.linearRampToValueAtTime(0.1, ctx.currentTime + 0.03);
-    gain2.gain.linearRampToValueAtTime(0.08, ctx.currentTime + 0.15);
-    gain2.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.35);
+    // Second soft note after a tiny gap (the "pop-pop" dopamine hit)
+    const tone2 = ctx.createOscillator();
+    tone2.type = 'sine';
+    tone2.frequency.setValueAtTime(1319, now + 0.12);  // E6
+    tone2.frequency.exponentialRampToValueAtTime(1568, now + 0.18); // G6
 
-    const gainFlutter = ctx.createGain();
-    gainFlutter.gain.setValueAtTime(0, ctx.currentTime);
-    gainFlutter.gain.linearRampToValueAtTime(0.05, ctx.currentTime + 0.02);
-    gainFlutter.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.35);
+    const tone2Gain = ctx.createGain();
+    tone2Gain.gain.setValueAtTime(0, now + 0.12);
+    tone2Gain.gain.linearRampToValueAtTime(0.08, now + 0.135);
+    tone2Gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
 
-    osc1.connect(gain1).connect(ctx.destination);
-    osc2.connect(gain2).connect(ctx.destination);
-    flutter.connect(gainFlutter).connect(ctx.destination);
+    // Connect all through a master volume
+    const master = ctx.createGain();
+    master.gain.setValueAtTime(0.7, now);
 
-    osc1.start(ctx.currentTime);
-    osc2.start(ctx.currentTime);
-    flutter.start(ctx.currentTime);
+    tone.connect(toneGain).connect(master);
+    shimmer.connect(shimmerGain).connect(master);
+    tone2.connect(tone2Gain).connect(master);
+    master.connect(ctx.destination);
 
-    osc1.stop(ctx.currentTime + 0.4);
-    osc2.stop(ctx.currentTime + 0.4);
-    flutter.stop(ctx.currentTime + 0.4);
+    tone.start(now);
+    shimmer.start(now);
+    tone2.start(now + 0.12);
+    tone.stop(now + 0.3);
+    shimmer.stop(now + 0.25);
+    tone2.stop(now + 0.4);
 
-    // Double buzz — play again after tiny gap
-    setTimeout(() => {
-      try {
-        const ctx2 = new (window.AudioContext || (window as any).webkitAudioContext)();
-        const o = ctx2.createOscillator();
-        o.type = 'sawtooth';
-        o.frequency.setValueAtTime(200, ctx2.currentTime);
-        o.frequency.exponentialRampToValueAtTime(240, ctx2.currentTime + 0.08);
-        o.frequency.exponentialRampToValueAtTime(180, ctx2.currentTime + 0.2);
-        const g = ctx2.createGain();
-        g.gain.setValueAtTime(0.12, ctx2.currentTime);
-        g.gain.linearRampToValueAtTime(0, ctx2.currentTime + 0.25);
-        o.connect(g).connect(ctx2.destination);
-        o.start(ctx2.currentTime);
-        o.stop(ctx2.currentTime + 0.25);
-      } catch {}
-    }, 350);
+    // Clean up context after sound finishes
+    setTimeout(() => ctx.close().catch(() => {}), 500);
   } catch {
     // AudioContext not supported — silent fallback
   }
@@ -126,8 +109,8 @@ export default function NotificationSystem() {
   const sendNotification = useCallback((template: typeof notificationTemplates[0], user: string) => {
     const body = template.body(user);
 
-    // Play bee buzz sound
-    playBeeSound();
+    // Play soft notification chime
+    playNotificationSound();
 
     // In-app notification via context
     addNotification?.({

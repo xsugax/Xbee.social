@@ -10,13 +10,19 @@ import TrustScoreCard from '@/components/trust/TrustScoreCard';
 import Avatar from '@/components/ui/Avatar';
 import { useLayout } from '@/context/LayoutContext';
 import { useApp } from '@/context/AppContext';
+import { useAuth, profileToUser } from '@/context/AuthContext';
+import { getSupabase } from '@/lib/supabase';
 import Link from 'next/link';
+import { User } from '@/types';
 
 export default function RightSidebar() {
   const { rightSidebarCollapsed, toggleRightSidebar } = useLayout();
   const { currentUser, posts, followUser, unfollowUser, isFollowing } = useApp();
+  const { isSupabaseConfigured } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
+  const [liveSearchUsers, setLiveSearchUsers] = useState<User[]>([]);
+  const [suggestedUsers, setSuggestedUsers] = useState<User[]>([]);
   const debounceTimer = useRef<NodeJS.Timeout>();
 
   useEffect(() => {
@@ -25,14 +31,49 @@ export default function RightSidebar() {
     return () => clearTimeout(debounceTimer.current);
   }, [searchQuery]);
 
+  // Live search users from Supabase
+  useEffect(() => {
+    if (!isSupabaseConfigured || !debouncedQuery.trim()) { setLiveSearchUsers([]); return; }
+    const controller = new AbortController();
+    (async () => {
+      try {
+        const supabase = getSupabase();
+        const q = `%${debouncedQuery.trim()}%`;
+        const { data } = await supabase.from('profiles').select('*').or(`username.ilike.${q},display_name.ilike.${q}`).neq('id', currentUser.id).limit(5);
+        if (!controller.signal.aborted && data) setLiveSearchUsers(data.map(p => profileToUser(p as any)));
+      } catch {}
+    })();
+    return () => controller.abort();
+  }, [debouncedQuery, isSupabaseConfigured, currentUser.id]);
+
+  // Load suggested users from Supabase (random profiles not yet followed)
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    (async () => {
+      try {
+        const supabase = getSupabase();
+        const { data } = await supabase.from('profiles').select('*').neq('id', currentUser.id).limit(10);
+        if (data) {
+          const users = data.map(p => profileToUser(p as any));
+          const notFollowed = users.filter(u => !isFollowing(u.id));
+          setSuggestedUsers(notFollowed.length > 0 ? notFollowed.slice(0, 3) : users.slice(0, 3));
+        }
+      } catch {}
+    })();
+  }, [isSupabaseConfigured, currentUser.id, isFollowing]);
+
   const searchResults = debouncedQuery.trim() ? {
-    users: mockUsers.filter(u => u.displayName.toLowerCase().includes(debouncedQuery.toLowerCase()) || u.username.toLowerCase().includes(debouncedQuery.toLowerCase())),
+    users: isSupabaseConfigured ? liveSearchUsers : mockUsers.filter(u => u.displayName.toLowerCase().includes(debouncedQuery.toLowerCase()) || u.username.toLowerCase().includes(debouncedQuery.toLowerCase())),
     posts: posts.filter(p => p.content.toLowerCase().includes(debouncedQuery.toLowerCase())).slice(0, 3),
   } : null;
 
-  // Suggest users that currentUser is NOT following
-  const suggestedUsers = mockUsers.filter(u => u.id !== currentUser.id && !isFollowing(u.id)).slice(0, 3);
-  const fallbackUsers = suggestedUsers.length === 0 ? mockUsers.filter(u => u.id !== currentUser.id).slice(0, 3) : suggestedUsers;
+  // Suggest users for "Who to Follow"
+  const fallbackUsers = isSupabaseConfigured
+    ? suggestedUsers
+    : (() => {
+        const notFollowed = mockUsers.filter(u => u.id !== currentUser.id && !isFollowing(u.id)).slice(0, 3);
+        return notFollowed.length > 0 ? notFollowed : mockUsers.filter(u => u.id !== currentUser.id).slice(0, 3);
+      })();
 
   return (
     <>

@@ -8,10 +8,11 @@ import {
   Shield, Target, Lock, Award, X, CheckCircle2, Loader2,
   Copy, Check, Wallet
 } from 'lucide-react';
-import { mockMonetization, currentUser, mockPosts } from '@/lib/mockData';
+import { mockMonetization, mockPosts } from '@/lib/mockData';
 import PostCard from '@/components/feed/PostCard';
 import { cn } from '@/lib/utils';
 import DemoBadge from '@/components/ui/DemoBadge';
+import { useApp } from '@/context/AppContext';
 
 const statCards = [
   { label: 'Total Earnings', value: '$4,523.87', change: '+24.5%', positive: true, icon: DollarSign, gradient: 'from-emerald-500 to-green-600' },
@@ -29,6 +30,7 @@ const revenueBreakdown = [
 ];
 
 export default function MonetizationPage() {
+  const { currentUser } = useApp();
   const [showModal, setShowModal] = useState<string | null>(null);
   const [withdrawAmount, setWithdrawAmount] = useState('');
   const [withdrawProcessing, setWithdrawProcessing] = useState(false);

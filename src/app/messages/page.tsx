@@ -14,7 +14,7 @@ import { mockUsers } from '@/lib/mockData';
 import { User } from '@/types';
 
 export default function MessagesPage() {
-  const { conversations, currentUser, activeConvId, setActiveConvId } = useApp();
+  const { conversations, currentUser, activeConvId, setActiveConvId, loadConversations } = useApp();
   const { isSupabaseConfigured } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewMsg, setShowNewMsg] = useState(false);
@@ -77,20 +77,8 @@ export default function MessagesPage() {
           user2_id: userId,
         });
         if (!error && data) {
-          // Check if conversation already in state
-          const existing = conversations.find(c => c.id === data);
-          if (existing) {
-            setActiveConvId(data);
-          } else {
-            // Fetch the new conversation participants
-            const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single();
-            const otherUserProfile = profile ? profileToUser(profile as any) : null;
-            if (otherUserProfile) {
-              // Add to conversations state temporarily — the real-time effect will sync
-              setActiveConvId(data);
-            }
-          }
-          // Force reload conversations by toggling active
+          // Reload conversations from Supabase so the new DM appears in the list
+          await loadConversations();
           setActiveConvId(data);
         }
       } catch {}

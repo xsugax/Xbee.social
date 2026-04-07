@@ -1,11 +1,7 @@
-﻿/** @type {import('next').NextConfig} */
+/** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
     domains: ['api.dicebear.com', 'picsum.photos'],
-  },
-  experimental: {
-    workerThreads: false,
-    cpus: 1,
   },
 };
 

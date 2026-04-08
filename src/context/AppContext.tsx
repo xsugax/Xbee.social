@@ -40,6 +40,11 @@ interface AppState {
   // View tracking
   viewPost: (postId: string) => void;
 
+  // Infinite scroll
+  loadMorePosts: () => Promise<void>;
+  hasMorePosts: boolean;
+  isLoadingMorePosts: boolean;
+
   // Follow system
   followUser: (userId: string) => void;
   unfollowUser: (userId: string) => void;
@@ -160,6 +165,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Track user interactions for Supabase mode
   const userInteractionsRef = useRef({ liked: new Set<string>(), reposted: new Set<string>(), bookmarked: new Set<string>() });
+  const [hasMorePosts, setHasMorePosts] = useState(true);
+  const [isLoadingMorePosts, setIsLoadingMorePosts] = useState(false);
+  const POSTS_PAGE_SIZE = 30;
 
   // Sync current user from Supabase profile
   useEffect(() => {
@@ -187,9 +195,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .from('posts')
         .select('*, profiles!posts_author_id_fkey(*)')
         .order('created_at', { ascending: false })
-        .limit(50) as unknown as { data: PostWithProfile[] | null };
+        .limit(POSTS_PAGE_SIZE) as unknown as { data: PostWithProfile[] | null };
 
       if (!postsData) return;
+      setHasMorePosts(postsData.length >= POSTS_PAGE_SIZE);
 
       // Load user interactions
       const { data: likes } = await supabase.from('post_likes').select('post_id').eq('user_id', authUser!.id) as { data: { post_id: string }[] | null };
@@ -235,6 +244,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     return () => { supabase.removeChannel(channel); };
   }, [isLive, authUser, currentUser]);
+
+  // ========== SUPABASE: Load more posts (infinite scroll) ==========
+  const loadMorePosts = useCallback(async () => {
+    if (!isLive || isLoadingMorePosts || !hasMorePosts) return;
+    setIsLoadingMorePosts(true);
+    try {
+      const supabase = getSupabase();
+      const oldestPost = posts[posts.length - 1];
+      if (!oldestPost) { setHasMorePosts(false); setIsLoadingMorePosts(false); return; }
+
+      const { data: postsData } = await supabase
+        .from('posts')
+        .select('*, profiles!posts_author_id_fkey(*)')
+        .order('created_at', { ascending: false })
+        .lt('created_at', oldestPost.createdAt)
+        .limit(POSTS_PAGE_SIZE) as unknown as { data: PostWithProfile[] | null };
+
+      if (!postsData || postsData.length === 0) {
+        setHasMorePosts(false);
+        setIsLoadingMorePosts(false);
+        return;
+      }
+
+      setHasMorePosts(postsData.length >= POSTS_PAGE_SIZE);
+      const newPosts = postsData.map(row => {
+        const author = row.profiles ? profileToUser(row.profiles) : currentUser;
+        return dbPostToPost(row, author, authUser!.id, userInteractionsRef.current);
+      });
+      setPosts(prev => {
+        const existingIds = new Set(prev.map(p => p.id));
+        const unique = newPosts.filter(p => !existingIds.has(p.id));
+        return [...prev, ...unique];
+      });
+    } catch {
+      // silently fail
+    }
+    setIsLoadingMorePosts(false);
+  }, [isLive, isLoadingMorePosts, hasMorePosts, posts, currentUser, authUser]);
 
   // ========== SUPABASE: Load following ==========
   useEffect(() => {
@@ -783,6 +830,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     <AppContext.Provider value={{
       currentUser, updateProfile,
       posts, addPost, likePost, repostPost, bookmarkPost, voteOnPoll, viewPost,
+      loadMorePosts, hasMorePosts, isLoadingMorePosts,
       followUser, unfollowUser, isFollowing: isFollowingUser, following,
       conversations, loadConversations, getMessages, sendMessage, addReply, activeConvId, setActiveConvId,
       notifications, addNotification, markNotificationRead, unreadCount,

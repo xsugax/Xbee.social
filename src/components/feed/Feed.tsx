@@ -50,7 +50,7 @@ const SIMULATED_POSTS = [
 const POSTS_PER_PAGE = 10;
 
 export default function Feed() {
-  const { posts, addPost } = useApp();
+  const { posts, addPost, loadMorePosts, hasMorePosts, isLoadingMorePosts } = useApp();
   const { isSupabaseConfigured } = useAuth();
   const reduceMotion = useReducedMotion();
   const [feedMode, setFeedMode] = useState<FeedMode>('trusted');
@@ -107,21 +107,32 @@ export default function Feed() {
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting && visibleCount < sortedPosts.length) {
-          setIsLoadingMore(true);
-          setTimeout(() => {
-            setVisibleCount(prev => Math.min(prev + POSTS_PER_PAGE, sortedPosts.length));
-            setIsLoadingMore(false);
-          }, 600);
+        if (entry.isIntersecting) {
+          if (visibleCount < sortedPosts.length) {
+            setIsLoadingMore(true);
+            setTimeout(() => {
+              setVisibleCount(prev => Math.min(prev + POSTS_PER_PAGE, sortedPosts.length));
+              setIsLoadingMore(false);
+            }, 600);
+          } else if (isSupabaseConfigured && hasMorePosts && !isLoadingMorePosts) {
+            loadMorePosts();
+          }
         }
       },
       { threshold: 0.1 }
     );
     if (loadMoreRef.current) observer.observe(loadMoreRef.current);
     return () => observer.disconnect();
-  }, [visibleCount, sortedPosts.length]);
+  }, [visibleCount, sortedPosts.length, isSupabaseConfigured, hasMorePosts, isLoadingMorePosts, loadMorePosts]);
 
   const handlePost = (content: string, media?: import('@/types').MediaAttachment[]) => { addPost(content, media); };
+
+  // Auto-expand visible count when server loads more posts
+  useEffect(() => {
+    if (isSupabaseConfigured && sortedPosts.length > 0 && visibleCount < sortedPosts.length) {
+      setVisibleCount(sortedPosts.length);
+    }
+  }, [sortedPosts.length, isSupabaseConfigured]);
 
   return (
     <div>
@@ -177,9 +188,9 @@ export default function Feed() {
             </motion.div>
           ))}
         </AnimatePresence>
-        {visibleCount < sortedPosts.length ? (
+        {visibleCount < sortedPosts.length || (isSupabaseConfigured && hasMorePosts) ? (
           <div ref={loadMoreRef} className="py-8 flex justify-center">
-            {isLoadingMore ? (
+            {isLoadingMore || isLoadingMorePosts ? (
               <div className="flex items-center gap-2 text-xbee-primary">
                 <Loader2 className="w-5 h-5 animate-spin" />
                 <span className="text-sm font-medium">Loading more posts...</span>

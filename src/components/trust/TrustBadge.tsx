@@ -164,6 +164,24 @@ export default function TrustBadge({ score, tier, size = 'sm', showScore = false
     );
   }
 
+  // Official = Gold verified badge (official accounts)
+  if (verification === 'official') {
+    return (
+      <motion.div
+        className={cn(
+          'inline-flex items-center gap-1',
+          showLabel && 'px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/30',
+        )}
+        whileHover={{ scale: 1.05 }}
+        title="Official Account"
+      >
+        <VerifiedCheckmark className={sizeMap[size]} color="#F59E0B" />
+        {showScore && <span className="text-[11px] font-bold text-yellow-400">{score}</span>}
+        {showLabel && <span className="text-[11px] font-medium text-yellow-400">Official</span>}
+      </motion.div>
+    );
+  }
+
   // Default: trust-tier badge for unverified users
   const Icon = config.icon;
   return (

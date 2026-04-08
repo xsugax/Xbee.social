@@ -74,6 +74,7 @@ interface AppState {
   updatePostEngagement: (postId: string, updates: Partial<{ likes: number; reposts: number; replies: number; views: number }>) => void;
   deletePostById: (postId: string) => void;
   setPosts: React.Dispatch<React.SetStateAction<Post[]>>;
+  addPostAsUser: (authorId: string, content: string, createdAt?: string, media?: Post['media']) => Promise<void>;
 }
 
 const AppContext = createContext<AppState | null>(null);
@@ -531,6 +532,38 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isLive, authUser, currentUser]);
 
+  const addPostAsUser = useCallback(async (authorId: string, content: string, createdAt?: string, media?: Post['media']) => {
+    if (isLive) {
+      const supabase = getSupabase();
+      const insertData: any = { author_id: authorId, content, media: media ? JSON.parse(JSON.stringify(media)) : [] };
+      if (createdAt) insertData.created_at = createdAt;
+      const { data, error } = await supabase.from('posts').insert(insertData).select('*').single();
+      if (error) { console.error('addPostAsUser error:', error); return; }
+      // Find or build the author user object
+      const author = allUsers.find(u => u.id === authorId);
+      if (data && author) {
+        const newPost: Post = {
+          id: data.id, author, content: data.content, media: (data.media as unknown as Post['media']) || [],
+          likes: 0, reposts: 0, replies: 0, views: 0,
+          liked: false, reposted: false, bookmarked: false,
+          createdAt: data.created_at,
+          credibility: { authorTrust: author.trust.score, contentScore: 80, engagementQuality: 1.0, viralityBrake: false },
+        };
+        setPosts(prev => [newPost, ...prev].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+      }
+    } else {
+      const author = allUsers.find(u => u.id === authorId) || currentUser;
+      const newPost: Post = {
+        id: generateId(), author, content, media,
+        likes: 0, reposts: 0, replies: 0, views: 0,
+        liked: false, reposted: false, bookmarked: false,
+        createdAt: createdAt || new Date().toISOString(),
+        credibility: { authorTrust: author.trust.score, contentScore: 80, engagementQuality: 1.0, viralityBrake: false },
+      };
+      setPosts(prev => [newPost, ...prev].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+    }
+  }, [isLive, authUser, currentUser, allUsers]);
+
   const likePost = useCallback(async (postId: string) => {
     if (isLive) {
       const supabase = getSupabase();
@@ -755,7 +788,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       notifications, addNotification, markNotificationRead, unreadCount,
       searchQuery, setSearchQuery, searchResults,
       allUsers, addSystemUser, deleteSystemUser, updateUserInSystem,
-      updatePostEngagement, deletePostById, setPosts,
+      updatePostEngagement, deletePostById, setPosts, addPostAsUser,
     }}>
       {children}
     </AppContext.Provider>

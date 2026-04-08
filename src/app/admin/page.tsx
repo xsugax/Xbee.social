@@ -65,7 +65,7 @@ export default function AdminPage() {
   const {
     allUsers, addSystemUser, deleteSystemUser, updateUserInSystem,
     posts, updatePostEngagement, deletePostById, addPost, setPosts,
-    notifications, addNotification, currentUser
+    notifications, addNotification, currentUser, addPostAsUser
   } = useApp();
 
   const isAdmin = ADMIN_IDS.includes(currentUser.id) || ADMIN_USERNAMES.includes(currentUser.username);
@@ -91,6 +91,19 @@ export default function AdminPage() {
   // Broadcast
   const [broadcastMsg, setBroadcastMsg] = useState('');
   const [broadcastSent, setBroadcastSent] = useState(false);
+
+  // Post as User (admin feature)
+  const [showPostAsUser, setShowPostAsUser] = useState(false);
+  const [postAsUserId, setPostAsUserId] = useState('');
+  const [postAsContent, setPostAsContent] = useState('');
+  const [postAsDate, setPostAsDate] = useState('');
+  const [postAsUserSearch, setPostAsUserSearch] = useState('');
+
+  const filteredPostAsUsers = useMemo(() => {
+    if (!postAsUserSearch) return allUsers.slice(0, 20);
+    const q = postAsUserSearch.toLowerCase();
+    return allUsers.filter(u => u.displayName.toLowerCase().includes(q) || u.username.toLowerCase().includes(q)).slice(0, 20);
+  }, [allUsers, postAsUserSearch]);
 
   // Platform controls
   const [platformControls, setPlatformControls] = useState({
@@ -254,6 +267,16 @@ export default function AdminPage() {
     setBroadcastSent(true);
     setTimeout(() => setBroadcastSent(false), 3000);
     setBroadcastMsg('');
+  };
+
+  const handlePostAsUser = async () => {
+    if (!postAsUserId || !postAsContent.trim()) return;
+    const createdAt = postAsDate ? new Date(postAsDate).toISOString() : undefined;
+    await addPostAsUser(postAsUserId, postAsContent, createdAt);
+    const targetUser = allUsers.find(u => u.id === postAsUserId);
+    addLog('Post Created As User', `@${targetUser?.username || postAsUserId}${createdAt ? ' (backdated)' : ''}`, 'medium');
+    setPostAsContent('');
+    setPostAsDate('');
   };
 
   // Analytics
@@ -515,9 +538,99 @@ export default function AdminPage() {
       {/* ═══════════════ TAB: POSTS ═══════════════ */}
       {activeTab === 'posts' && (
         <div>
-          <div className="px-4 py-3 border-b border-theme">
+          <div className="px-4 py-3 border-b border-theme flex items-center justify-between">
             <p className="text-xs text-theme-tertiary">{filteredPosts.length} posts · {totalLikes} total likes · {formatNumber(totalViews)} total views</p>
+            <motion.button
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 text-purple-400 text-xs font-bold hover:bg-purple-500/20 transition-colors"
+              onClick={() => setShowPostAsUser(!showPostAsUser)}
+              whileTap={{ scale: 0.95 }}
+            >
+              <Plus className="w-3.5 h-3.5" /> Post as User
+            </motion.button>
           </div>
+
+          {/* Post as User Panel */}
+          <AnimatePresence>
+            {showPostAsUser && (
+              <motion.div className="px-4 py-4 border-b border-theme bg-purple-500/5" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
+                <h3 className="text-sm font-bold text-theme-primary mb-3 flex items-center gap-2"><Crown className="w-4 h-4 text-purple-400" /> Post as Any User (Admin Backdating)</h3>
+
+                {/* User Selector */}
+                <div className="mb-3">
+                  <label className="text-[10px] text-theme-tertiary mb-1 block">Select User Account</label>
+                  <input
+                    className="xbee-input text-sm mb-2"
+                    placeholder="Search users..."
+                    value={postAsUserSearch}
+                    onChange={e => setPostAsUserSearch(e.target.value)}
+                  />
+                  <div className="max-h-40 overflow-y-auto rounded-lg border border-theme bg-theme-primary">
+                    {filteredPostAsUsers.map(u => (
+                      <button
+                        key={u.id}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-theme-hover transition-colors',
+                          postAsUserId === u.id && 'bg-purple-500/10 border-l-2 border-purple-400'
+                        )}
+                        onClick={() => { setPostAsUserId(u.id); setPostAsUserSearch(''); }}
+                      >
+                        <Avatar name={u.displayName} src={u.avatar} size="xs" verified={u.verified} />
+                        <div className="min-w-0">
+                          <span className="text-xs font-bold text-theme-primary truncate block">{u.displayName}</span>
+                          <span className="text-[10px] text-theme-tertiary">@{u.username}</span>
+                        </div>
+                      </button>
+                    ))}
+                    {filteredPostAsUsers.length === 0 && <p className="text-xs text-theme-tertiary p-3 text-center">No users found</p>}
+                  </div>
+                  {postAsUserId && (
+                    <div className="mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                      <span className="text-xs text-purple-300">Posting as:</span>
+                      <span className="text-xs font-bold text-purple-400">@{allUsers.find(u => u.id === postAsUserId)?.username}</span>
+                      <button className="ml-auto" onClick={() => setPostAsUserId('')}><X className="w-3 h-3 text-theme-tertiary" /></button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Content */}
+                <div className="mb-3">
+                  <label className="text-[10px] text-theme-tertiary mb-1 block">Post Content</label>
+                  <textarea
+                    className="xbee-input text-sm min-h-[80px] resize-y"
+                    placeholder="Write the post content..."
+                    value={postAsContent}
+                    onChange={e => setPostAsContent(e.target.value)}
+                    maxLength={1000}
+                  />
+                  <p className="text-[9px] text-theme-tertiary text-right mt-0.5">{postAsContent.length}/1000</p>
+                </div>
+
+                {/* Backdate */}
+                <div className="mb-3">
+                  <label className="text-[10px] text-theme-tertiary mb-1 block">Backdate (optional — leave empty for now)</label>
+                  <input
+                    className="xbee-input text-sm"
+                    type="datetime-local"
+                    value={postAsDate}
+                    onChange={e => setPostAsDate(e.target.value)}
+                  />
+                </div>
+
+                {/* Actions */}
+                <div className="flex gap-2">
+                  <motion.button
+                    className="xbee-button-primary text-sm flex-1"
+                    onClick={handlePostAsUser}
+                    whileTap={{ scale: 0.95 }}
+                    disabled={!postAsUserId || !postAsContent.trim()}
+                  >
+                    <FileText className="w-4 h-4 inline mr-1" /> Publish Post
+                  </motion.button>
+                  <button className="px-4 py-2 rounded-lg text-sm text-theme-secondary hover:bg-theme-hover" onClick={() => setShowPostAsUser(false)}>Cancel</button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <div className="divide-y divide-theme">
             {filteredPosts.map((post) => (

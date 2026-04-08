@@ -532,5 +532,6 @@ BEGIN
 END $$;
 
 -- Verify
+
 SELECT 'Migration complete! Total posts: ' || count(*) FROM public.posts;
 SELECT 'Avatars updated: ' || count(*) FROM public.profiles WHERE avatar LIKE '%unavatar.io%';

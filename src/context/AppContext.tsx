@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
 import { User, Post, Conversation, Message, Notification } from '@/types';
@@ -201,9 +201,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setHasMorePosts(postsData.length >= POSTS_PAGE_SIZE);
 
       // Load user interactions
-      const { data: likes } = await supabase.from('post_likes').select('post_id').eq('user_id', authUser!.id) as { data: { post_id: string }[] | null };
-      const { data: reposts } = await supabase.from('post_reposts').select('post_id').eq('user_id', authUser!.id) as { data: { post_id: string }[] | null };
-      const { data: bookmarks } = await supabase.from('post_bookmarks').select('post_id').eq('user_id', authUser!.id) as { data: { post_id: string }[] | null };
+      const { data: likes } = await supabase.from('post_likes').select('post_id').eq('user_id', (authUser?.id || '')) as { data: { post_id: string }[] | null };
+      const { data: reposts } = await supabase.from('post_reposts').select('post_id').eq('user_id', (authUser?.id || '')) as { data: { post_id: string }[] | null };
+      const { data: bookmarks } = await supabase.from('post_bookmarks').select('post_id').eq('user_id', (authUser?.id || '')) as { data: { post_id: string }[] | null };
 
       const likedSet = new Set((likes || []).map(l => l.post_id));
       const repostedSet = new Set((reposts || []).map(r => r.post_id));
@@ -212,7 +212,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       const appPosts = postsData.map(row => {
         const author = row.profiles ? profileToUser(row.profiles) : currentUser;
-        return dbPostToPost(row, author, authUser!.id, userInteractionsRef.current);
+        return dbPostToPost(row, author, (authUser?.id || ''), userInteractionsRef.current);
       });
 
       setPosts(appPosts);
@@ -230,7 +230,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .single() as unknown as { data: PostWithProfile | null };
         if (fullPost) {
           const author = fullPost.profiles ? profileToUser(fullPost.profiles) : currentUser;
-          const post = dbPostToPost(fullPost, author, authUser!.id, userInteractionsRef.current);
+          const post = dbPostToPost(fullPost, author, (authUser?.id || ''), userInteractionsRef.current);
           setPosts(prev => [post, ...prev.filter(p => p.id !== post.id)]);
         }
       })
@@ -270,7 +270,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setHasMorePosts(postsData.length >= POSTS_PAGE_SIZE);
       const newPosts = postsData.map(row => {
         const author = row.profiles ? profileToUser(row.profiles) : currentUser;
-        return dbPostToPost(row, author, authUser!.id, userInteractionsRef.current);
+        return dbPostToPost(row, author, (authUser?.id || ''), userInteractionsRef.current);
       });
       setPosts(prev => {
         const existingIds = new Set(prev.map(p => p.id));
@@ -289,7 +289,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const supabase = getSupabase();
 
     async function loadFollowing() {
-      const { data } = await supabase.from('follows').select('following_id').eq('follower_id', authUser!.id);
+      const { data } = await supabase.from('follows').select('following_id').eq('follower_id', (authUser?.id || ''));
       if (data) setFollowing(new Set(data.map(f => f.following_id)));
     }
     loadFollowing();
@@ -304,7 +304,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const { data } = await supabase
         .from('notifications')
         .select('*, actor:profiles!notifications_actor_id_fkey(*)')
-        .eq('user_id', authUser!.id)
+        .eq('user_id', (authUser?.id || ''))
         .order('created_at', { ascending: false })
         .limit(50) as unknown as { data: NotifWithActor[] | null };
 
@@ -325,7 +325,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // Real-time notifications
     const channel = supabase.channel('notifications-realtime')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${authUser!.id}` }, async (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${(authUser?.id || '')}` }, async (payload) => {
         const { data: full } = await supabase
           .from('notifications')
           .select('*, actor:profiles!notifications_actor_id_fkey(*)')
@@ -503,10 +503,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const followUser = useCallback(async (userId: string) => {
     if (isLive) {
       const supabase = getSupabase();
-      await supabase.from('follows').insert({ follower_id: authUser!.id, following_id: userId });
+      await supabase.from('follows').insert({ follower_id: (authUser?.id || ''), following_id: userId });
       await supabase.from('notifications').insert({
         user_id: userId,
-        actor_id: authUser!.id,
+        actor_id: (authUser?.id || ''),
         type: 'follow',
         content: 'started following you',
       });
@@ -523,7 +523,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const unfollowUser = useCallback(async (userId: string) => {
     if (isLive) {
       const supabase = getSupabase();
-      await supabase.from('follows').delete().eq('follower_id', authUser!.id).eq('following_id', userId);
+      await supabase.from('follows').delete().eq('follower_id', (authUser?.id || '')).eq('following_id', userId);
     }
     setFollowing(prev => { const next = new Set(prev); next.delete(userId); return next; });
   }, [isLive, authUser]);
@@ -542,7 +542,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (updates.username) dbUpdates.username = updates.username;
       if (updates.bio !== undefined) dbUpdates.bio = updates.bio;
       if (updates.avatar) dbUpdates.avatar = updates.avatar;
-      supabase.from('profiles').update(dbUpdates).eq('id', authUser!.id).then(() => {});
+      supabase.from('profiles').update(dbUpdates).eq('id', (authUser?.id || '')).then(() => {});
     }
     setCurrentUser(prev => {
       const updated = { ...prev, ...updates };
@@ -559,7 +559,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (isLive) {
       const supabase = getSupabase();
       await supabase.from('posts').insert({
-        author_id: authUser!.id,
+        author_id: (authUser?.id || ''),
         content,
         media: media ? JSON.parse(JSON.stringify(media)) : [],
       });
@@ -616,17 +616,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const supabase = getSupabase();
       const isLiked = userInteractionsRef.current.liked.has(postId);
       if (isLiked) {
-        await supabase.from('post_likes').delete().eq('user_id', authUser!.id).eq('post_id', postId);
+        await supabase.from('post_likes').delete().eq('user_id', (authUser?.id || '')).eq('post_id', postId);
         await supabase.rpc('increment_post_likes', { p_id: postId, delta: -1 });
         userInteractionsRef.current.liked.delete(postId);
       } else {
-        await supabase.from('post_likes').insert({ user_id: authUser!.id, post_id: postId });
+        await supabase.from('post_likes').insert({ user_id: (authUser?.id || ''), post_id: postId });
         await supabase.rpc('increment_post_likes', { p_id: postId, delta: 1 });
         userInteractionsRef.current.liked.add(postId);
         // Create notification for post author
         const post = posts.find(p => p.id === postId);
-        if (post && post.author.id !== authUser!.id) {
-          await supabase.from('notifications').insert({ user_id: post.author.id, actor_id: authUser!.id, type: 'like', content: 'liked your post', post_id: postId });
+        if (post && post.author.id !== (authUser?.id || '')) {
+          await supabase.from('notifications').insert({ user_id: post.author.id, actor_id: (authUser?.id || ''), type: 'like', content: 'liked your post', post_id: postId });
         }
       }
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, liked: !p.liked, likes: p.liked ? p.likes - 1 : p.likes + 1 } : p));
@@ -646,16 +646,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const supabase = getSupabase();
       const isReposted = userInteractionsRef.current.reposted.has(postId);
       if (isReposted) {
-        await supabase.from('post_reposts').delete().eq('user_id', authUser!.id).eq('post_id', postId);
+        await supabase.from('post_reposts').delete().eq('user_id', (authUser?.id || '')).eq('post_id', postId);
         await supabase.rpc('increment_post_reposts', { p_id: postId, delta: -1 });
         userInteractionsRef.current.reposted.delete(postId);
       } else {
-        await supabase.from('post_reposts').insert({ user_id: authUser!.id, post_id: postId });
+        await supabase.from('post_reposts').insert({ user_id: (authUser?.id || ''), post_id: postId });
         await supabase.rpc('increment_post_reposts', { p_id: postId, delta: 1 });
         userInteractionsRef.current.reposted.add(postId);
         const post = posts.find(p => p.id === postId);
-        if (post && post.author.id !== authUser!.id) {
-          await supabase.from('notifications').insert({ user_id: post.author.id, actor_id: authUser!.id, type: 'repost', content: 'reposted your post', post_id: postId });
+        if (post && post.author.id !== (authUser?.id || '')) {
+          await supabase.from('notifications').insert({ user_id: post.author.id, actor_id: (authUser?.id || ''), type: 'repost', content: 'reposted your post', post_id: postId });
         }
       }
       setPosts(prev => prev.map(p => p.id === postId ? { ...p, reposted: !p.reposted, reposts: p.reposted ? p.reposts - 1 : p.reposts + 1 } : p));
@@ -675,10 +675,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const supabase = getSupabase();
       const isBookmarked = userInteractionsRef.current.bookmarked.has(postId);
       if (isBookmarked) {
-        await supabase.from('post_bookmarks').delete().eq('user_id', authUser!.id).eq('post_id', postId);
+        await supabase.from('post_bookmarks').delete().eq('user_id', (authUser?.id || '')).eq('post_id', postId);
         userInteractionsRef.current.bookmarked.delete(postId);
       } else {
-        await supabase.from('post_bookmarks').insert({ user_id: authUser!.id, post_id: postId });
+        await supabase.from('post_bookmarks').insert({ user_id: (authUser?.id || ''), post_id: postId });
         userInteractionsRef.current.bookmarked.add(postId);
       }
     }
@@ -719,7 +719,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     viewedPostIds.add(postId);
     if (isLive) {
       const supabase = getSupabase();
-      await supabase.from('post_views').insert({ user_id: authUser!.id, post_id: postId }).select().maybeSingle();
+      await supabase.from('post_views').insert({ user_id: (authUser?.id || ''), post_id: postId }).select().maybeSingle();
       await supabase.rpc('increment_post_views', { p_id: postId });
     }
     setPosts(prev => prev.map(p => p.id === postId ? { ...p, views: p.views + 1 } : p));
@@ -732,7 +732,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const supabase = getSupabase();
       await supabase.from('messages').insert({
         conversation_id: convId,
-        sender_id: authUser!.id,
+        sender_id: (authUser?.id || ''),
         content,
         type: 'text',
         ghost_expires_at: ghostConfig?.enabled ? new Date(Date.now() + ghostConfig.expiresIn * 1000).toISOString() : null,
@@ -821,8 +821,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!searchQuery.trim()) return { posts: [], users: [] };
     const q = searchQuery.toLowerCase();
     return {
-      posts: posts.filter(p => p.content.toLowerCase().includes(q) || p.author.displayName.toLowerCase().includes(q) || p.author.username.toLowerCase().includes(q)),
-      users: allUsers.filter(u => u.displayName.toLowerCase().includes(q) || u.username.toLowerCase().includes(q) || u.bio.toLowerCase().includes(q)),
+      posts: posts.filter(p => p.content?.toLowerCase().includes(q) || p.author?.displayName?.toLowerCase().includes(q) || p.author?.username?.toLowerCase().includes(q)),
+      users: allUsers.filter(u => u.displayName?.toLowerCase().includes(q) || u.username?.toLowerCase().includes(q) || u.bio?.toLowerCase().includes(q)),
     };
   }, [searchQuery, posts, allUsers]);
 

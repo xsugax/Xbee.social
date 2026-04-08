@@ -30,6 +30,19 @@ function ProfileContent() {
   const [profilePosts, setProfilePosts] = useState<any[]>([]);
   const [isLoadingProfile, setIsLoadingProfile] = useState(false);
 
+  // ALL hooks must be called before any conditional returns (React Rules of Hooks)
+  const [activeTab, setActiveTab] = useState<ProfileTab>('posts');
+  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const [coverImage, setCoverImage] = useState<string | null>(null);
+  const [avatarImage, setAvatarImage] = useState<string | null>(null);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editUsername, setEditUsername] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [editError, setEditError] = useState('');
+  const coverInputRef = useRef<HTMLInputElement>(null);
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+
   // Fetch other user's profile from Supabase
   useEffect(() => {
     if (!userId || userId === currentUser.id || !isSupabaseConfigured) { setFetchedUser(null); setIsLoadingProfile(false); return; }
@@ -69,54 +82,24 @@ function ProfileContent() {
     return mockUsers.find(u => u.id === userId) || currentUser;
   }, [userId, currentUser, isSupabaseConfigured, fetchedUser]);
 
-  // Show loading spinner while fetching profile
-  if (isLoadingProfile || (userId && userId !== currentUser.id && isSupabaseConfigured && !displayUser)) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-2 border-xbee-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-
-  // If user not found
-  if (!displayUser) {
-    return (
-      <div className="py-16 text-center">
-        <h2 className="text-lg font-bold text-theme-primary mb-1">User not found</h2>
-        <p className="text-sm text-theme-tertiary">This account may not exist.</p>
-      </div>
-    );
-  }
-
-  const isOwnProfile = displayUser.id === currentUser.id;
-  const isFollowingUser = checkFollowing ? checkFollowing(displayUser.id) : false;
-
-  const [activeTab, setActiveTab] = useState<ProfileTab>('posts');
-  const [copiedCode, setCopiedCode] = useState<string | null>(null);
+  const isOwnProfile = displayUser ? displayUser.id === currentUser.id : true;
+  const isFollowingUser = displayUser && checkFollowing ? checkFollowing(displayUser.id) : false;
   const coverKey = `xbee_cover_${currentUser.id}`;
   const avatarKey = `xbee_avatar_${currentUser.id}`;
-  const [coverImage, setCoverImage] = useState<string | null>(() => {
-    if (!isOwnProfile) return null;
-    try { return localStorage.getItem(coverKey); } catch { return null; }
-  });
-  const [avatarImage, setAvatarImage] = useState<string | null>(() => {
-    try { return localStorage.getItem(avatarKey) || displayUser.avatar || null; } catch { return displayUser.avatar || null; }
-  });
+
+  // Initialise cover/avatar from localStorage once displayUser is available
+  useEffect(() => {
+    if (!displayUser) return;
+    try { setCoverImage(isOwnProfile ? localStorage.getItem(coverKey) : null); } catch { setCoverImage(null); }
+    try { setAvatarImage(localStorage.getItem(avatarKey) || displayUser.avatar || null); } catch { setAvatarImage(displayUser.avatar || null); }
+  }, [displayUser, isOwnProfile, coverKey, avatarKey]);
 
   // For other users, show their cover image from DB
-  const effectiveCoverImage = isOwnProfile ? coverImage : (displayUser.coverImage || null);
-
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editName, setEditName] = useState(currentUser.displayName);
-  const [editUsername, setEditUsername] = useState(currentUser.username);
-  const [editBio, setEditBio] = useState(currentUser.bio);
-  const [editError, setEditError] = useState('');
-  const coverInputRef = useRef<HTMLInputElement>(null);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const effectiveCoverImage = isOwnProfile ? coverImage : (displayUser?.coverImage || null);
 
   // Convert Supabase post rows to app Post objects for profile view
   const supabasePosts = useMemo(() => {
-    if (!isSupabaseConfigured || profilePosts.length === 0) return [];
+    if (!isSupabaseConfigured || profilePosts.length === 0 || !displayUser) return [];
     return profilePosts.map((row: any) => {
       const author = row.profiles ? profileToUser(row.profiles) : displayUser;
       return {
@@ -133,7 +116,7 @@ function ProfileContent() {
         reposted: false,
         bookmarked: false,
         createdAt: row.created_at,
-        credibility: { authorTrust: author.trust.score, contentScore: 80, engagementQuality: 1.0, viralityBrake: false },
+        credibility: { authorTrust: author?.trust?.score ?? 50, contentScore: 80, engagementQuality: 1.0, viralityBrake: false },
       };
     });
   }, [profilePosts, displayUser, isSupabaseConfigured]);
@@ -141,10 +124,10 @@ function ProfileContent() {
   // Use Supabase posts if available, otherwise filter from global posts
   const userPosts = isSupabaseConfigured && supabasePosts.length > 0
     ? supabasePosts
-    : posts.filter(p => p.author.id === displayUser.id);
+    : displayUser ? posts.filter(p => p.author?.id === displayUser.id) : [];
   const displayPosts = useMemo(() => {
     switch (activeTab) {
-      case 'replies': return userPosts.filter((p: any) => p.replyTo || (p.content.startsWith('@') && p.content.length > 1) || p.replies > 0);
+      case 'replies': return userPosts.filter((p: any) => p.replyTo || (p.content?.startsWith('@') && p.content.length > 1) || p.replies > 0);
       case 'media': return userPosts.filter((p: any) => p.media && p.media.length > 0);
       case 'likes': return posts.filter(p => p.liked);
       default: return userPosts;
@@ -187,6 +170,25 @@ function ProfileContent() {
     }
     e.target.value = '';
   };
+
+  // Show loading spinner while fetching profile
+  if (isLoadingProfile || (userId && userId !== currentUser.id && isSupabaseConfigured && !displayUser)) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-2 border-xbee-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // If user not found
+  if (!displayUser) {
+    return (
+      <div className="py-16 text-center">
+        <h2 className="text-lg font-bold text-theme-primary mb-1">User not found</h2>
+        <p className="text-sm text-theme-tertiary">This account may not exist.</p>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -250,7 +252,7 @@ function ProfileContent() {
             )}
           </div>
           {isOwnProfile ? (
-            <motion.button className="xbee-button-secondary text-sm mt-16" whileTap={{ scale: 0.95 }} onClick={() => { setEditName(currentUser.displayName); setEditUsername(currentUser.username); setEditBio(currentUser.bio); setShowEditModal(true); }}>
+            <motion.button className="xbee-button-secondary text-sm mt-16" whileTap={{ scale: 0.95 }} onClick={() => { setEditName(currentUser.displayName || ''); setEditUsername(currentUser.username || ''); setEditBio(currentUser.bio || ''); setShowEditModal(true); }}>
               <Edit3 className="w-4 h-4" /> Edit Profile
             </motion.button>
           ) : (

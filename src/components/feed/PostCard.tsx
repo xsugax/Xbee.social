@@ -157,9 +157,12 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
   const shareMenuRef = useRef<HTMLDivElement>(null);
   const reduceMotion = useReducedMotion();
 
-  const isOwnPost = post.author?.id === currentUser.id;
-  const isFollowingAuthor = checkFollowing ? checkFollowing(post.author?.id) : false;
+  const author = post.author || currentUser;
+  const authorTrust = author?.trust || { score: 50, tier: 'new' as const };
+  const isOwnPost = author.id === currentUser.id;
+  const isFollowingAuthor = checkFollowing ? checkFollowing(author.id) : false;
   const hasVoted = post.poll?.voted;
+  const credibility = post.credibility || { authorTrust: 50, contentScore: 50, engagementQuality: 0.5, viralityBrake: false };
 
   // Track views on mount
   useEffect(() => {
@@ -242,7 +245,7 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
   }, [currentUser]);
 
   const totalComments = comments.reduce((sum, c) => sum + 1 + (c.replies?.length || 0), 0);
-  const isLowTrust = (post.author?.trust?.score ?? 50) < 50;
+  const isLowTrust = (authorTrust.score ?? 50) < 50;
   const isReachLimited = post.reachLimited;
 
   return (
@@ -262,22 +265,22 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
         )}
 
         <div className="flex gap-3">
-          <Link href={`/profile?user=${post.author.id}`} onClick={(e) => e.stopPropagation()}>
-            <Avatar name={post.author.displayName} src={post.author.avatar} verified={post.author.verified} size="md" />
+          <Link href={`/profile?user=${author.id}`} onClick={(e) => e.stopPropagation()}>
+            <Avatar name={author.displayName} src={author.avatar} verified={author.verified} size="md" />
           </Link>
           <div className="flex-1 min-w-0">
             {/* Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                <Link href={`/profile?user=${post.author.id}`} onClick={(e) => e.stopPropagation()} className="font-bold text-[15px] text-theme-primary truncate hover:underline">
-                  {post.author.displayName}
+                <Link href={`/profile?user=${author.id}`} onClick={(e) => e.stopPropagation()} className="font-bold text-[15px] text-theme-primary truncate hover:underline">
+                  {author.displayName}
                 </Link>
-                <TrustBadge score={post.author.trust.score} tier={post.author.trust.tier} size="sm" verification={post.author.verification} />
-                <span className="text-theme-tertiary text-sm shrink-0 max-sm:hidden">@{post.author.username}</span>
+                <TrustBadge score={authorTrust.score} tier={authorTrust.tier || 'new'} size="sm" verification={author.verification} />
+                <span className="text-theme-tertiary text-sm shrink-0 max-sm:hidden">@{author.username}</span>
                 <span className="text-theme-tertiary shrink-0"></span>
                 <span className="text-theme-tertiary text-sm shrink-0 hover:underline">{formatTimeAgo(post.createdAt)}</span>
                 {!isOwnPost && !isFollowingAuthor && (
-                  <motion.button className="text-xbee-primary text-xs font-bold hover:text-xbee-primary/80 ml-1" onClick={(e) => { e.stopPropagation(); e.preventDefault(); followUser?.(post.author.id); }} whileTap={{ scale: 0.9 }}>
+                  <motion.button className="text-xbee-primary text-xs font-bold hover:text-xbee-primary/80 ml-1" onClick={(e) => { e.stopPropagation(); e.preventDefault(); followUser?.(author.id); }} whileTap={{ scale: 0.9 }}>
                      Follow
                   </motion.button>
                 )}
@@ -290,9 +293,9 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
                   {showMenu && (
                     <motion.div className="absolute right-0 top-8 glass-card w-56 py-1 z-20" role="menu" initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} onClick={(e) => e.stopPropagation()}>
                       {!isOwnPost && (
-                        <button role="menuitem" className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { isFollowingAuthor ? unfollowUser?.(post.author.id) : followUser?.(post.author.id); setShowMenu(false); }}>
+                        <button role="menuitem" className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { isFollowingAuthor ? unfollowUser?.(author.id) : followUser?.(author.id); setShowMenu(false); }}>
                           {isFollowingAuthor ? <UserMinus className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
-                          {isFollowingAuthor ? `Unfollow @${post.author.username}` : `Follow @${post.author.username}`}
+                          {isFollowingAuthor ? `Unfollow @${author.username}` : `Follow @${author.username}`}
                         </button>
                       )}
                       <button role="menuitem" className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { setShowStats(!showStats); setShowMenu(false); }}>
@@ -350,7 +353,7 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
                   </div>
                   <div className="mt-2 pt-2 border-t border-theme flex items-center justify-between">
                     <span className="text-[10px] text-theme-tertiary">Engagement rate: {((likeCount + repostCount + totalComments) / Math.max(post.views, 1) * 100).toFixed(1)}%</span>
-                    <span className="text-[10px] text-emerald-400">Credibility: {post.credibility.contentScore}%</span>
+                    <span className="text-[10px] text-emerald-400">Credibility: {credibility.contentScore}%</span>
                   </div>
                 </motion.div>
               )}
@@ -360,17 +363,17 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
             {feedMode === 'trusted' && (
               <div className="mt-2 flex items-center gap-2">
                 <div className="flex items-center gap-1">
-                  {post.credibility.factCheckStatus === 'verified' && (
+                  {credibility.factCheckStatus === 'verified' && (
                     <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"><CheckCircle className="w-2.5 h-2.5" /> Verified</span>
                   )}
-                  {post.credibility.factCheckStatus === 'unverified' && (
+                  {credibility.factCheckStatus === 'unverified' && (
                     <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-500 border border-yellow-500/20"><AlertTriangle className="w-2.5 h-2.5" /> Unverified</span>
                   )}
                 </div>
                 <div className="flex-1 h-1 rounded-full bg-theme-tertiary overflow-hidden max-w-[100px]">
-                  <div className={cn('h-full rounded-full transition-all', post.credibility.contentScore >= 80 ? 'bg-emerald-400' : post.credibility.contentScore >= 60 ? 'bg-blue-400' : 'bg-yellow-500')} style={{ width: `${post.credibility.contentScore}%` }} />
+                  <div className={cn('h-full rounded-full transition-all', credibility.contentScore >= 80 ? 'bg-emerald-400' : credibility.contentScore >= 60 ? 'bg-blue-400' : 'bg-yellow-500')} style={{ width: `${credibility.contentScore}%` }} />
                 </div>
-                <span className="text-[10px] text-theme-tertiary">{post.credibility.contentScore}% credibility</span>
+                <span className="text-[10px] text-theme-tertiary">{credibility.contentScore}% credibility</span>
               </div>
             )}
 
@@ -540,12 +543,12 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
                 <div className="text-center py-4">
                   <div className="text-4xl mb-3">🎉</div>
                   <p className="text-lg font-bold text-theme-primary">Tip Sent!</p>
-                  <p className="text-sm text-theme-tertiary mt-1">${tipAmount} sent to @{post.author.username}. They&apos;ll love this!</p>
+                  <p className="text-sm text-theme-tertiary mt-1">${tipAmount} sent to @{author.username}. They&apos;ll love this!</p>
                 </div>
               ) : (
                 <>
                   <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-bold text-theme-primary flex items-center gap-2"><DollarSign className="w-5 h-5 text-emerald-400" /> Tip @{post.author.username}</h3>
+                    <h3 className="text-lg font-bold text-theme-primary flex items-center gap-2"><DollarSign className="w-5 h-5 text-emerald-400" /> Tip @{author.username}</h3>
                     <button onClick={() => setShowTip(false)}><X className="w-5 h-5 text-theme-secondary" /></button>
                   </div>
                   <p className="text-sm text-theme-tertiary mb-4">Show appreciation for great content</p>

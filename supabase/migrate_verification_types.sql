@@ -72,4 +72,4 @@ UPDATE public.profiles SET verification = 'celebrity' WHERE id IN (
 );
 
 -- Verify
-SELECT verification, count(*) FROM public.profiles WHERE id LIKE 'a0000000%' GROUP BY verification ORDER BY verification;
+SELECT verification, count(*) FROM public.profiles WHERE id::text LIKE 'a0000000%' GROUP BY verification ORDER BY verification;

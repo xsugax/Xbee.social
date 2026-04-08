@@ -51,9 +51,12 @@ function ProfileContent() {
     (async () => {
       try {
         const supabase = getSupabase();
-        const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
+        const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+        if (error) console.error('Profile fetch error:', error.message);
         if (data) setFetchedUser(profileToUser(data as any));
-      } catch {}
+      } catch (e) {
+        console.error('Profile fetch exception:', e);
+      }
       setIsLoadingProfile(false);
     })();
   }, [userId, currentUser.id, isSupabaseConfigured]);
@@ -90,8 +93,14 @@ function ProfileContent() {
   // Initialise cover/avatar from localStorage once displayUser is available
   useEffect(() => {
     if (!displayUser) return;
-    try { setCoverImage(isOwnProfile ? localStorage.getItem(coverKey) : null); } catch { setCoverImage(null); }
-    try { setAvatarImage(localStorage.getItem(avatarKey) || displayUser.avatar || null); } catch { setAvatarImage(displayUser.avatar || null); }
+    if (isOwnProfile) {
+      try { setCoverImage(localStorage.getItem(coverKey)); } catch { setCoverImage(null); }
+      try { setAvatarImage(localStorage.getItem(avatarKey) || displayUser.avatar || null); } catch { setAvatarImage(displayUser.avatar || null); }
+    } else {
+      // For other profiles: use THEIR data, never localStorage
+      setCoverImage(null);
+      setAvatarImage(displayUser.avatar || null);
+    }
   }, [displayUser, isOwnProfile, coverKey, avatarKey]);
 
   // For other users, show their cover image from DB
@@ -171,8 +180,8 @@ function ProfileContent() {
     e.target.value = '';
   };
 
-  // Show loading spinner while fetching profile
-  if (isLoadingProfile || (userId && userId !== currentUser.id && isSupabaseConfigured && !displayUser)) {
+  // Show loading spinner only while actively fetching
+  if (isLoadingProfile) {
     return (
       <div className="flex items-center justify-center py-20">
         <div className="w-8 h-8 border-2 border-xbee-primary border-t-transparent rounded-full animate-spin" />
@@ -180,7 +189,7 @@ function ProfileContent() {
     );
   }
 
-  // If user not found
+  // If user not found (fetch completed but no data)
   if (!displayUser) {
     return (
       <div className="py-16 text-center">

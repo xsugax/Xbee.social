@@ -96,8 +96,8 @@ export default function Feed() {
   const sortedPosts = useMemo(() => {
     if (feedMode === 'trusted') {
       return [...posts].sort((a, b) => {
-        const scoreA = (a.credibility.authorTrust * 0.4) + (a.credibility.contentScore * 0.3) + (a.credibility.engagementQuality * 100 * 0.3);
-        const scoreB = (b.credibility.authorTrust * 0.4) + (b.credibility.contentScore * 0.3) + (b.credibility.engagementQuality * 100 * 0.3);
+        const scoreA = ((a.credibility?.authorTrust ?? 50) * 0.4) + ((a.credibility?.contentScore ?? 50) * 0.3) + ((a.credibility?.engagementQuality ?? 0.5) * 100 * 0.3);
+        const scoreB = ((b.credibility?.authorTrust ?? 50) * 0.4) + ((b.credibility?.contentScore ?? 50) * 0.3) + ((b.credibility?.engagementQuality ?? 0.5) * 100 * 0.3);
         return scoreB - scoreA;
       });
     }

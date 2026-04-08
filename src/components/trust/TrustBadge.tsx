@@ -44,7 +44,7 @@ function VerifiedCheckmark({ className, color }: { className?: string; color: st
 }
 
 export default function TrustBadge({ score, tier, size = 'sm', showScore = false, showLabel = false, verification = 'none' }: TrustBadgeProps) {
-  const config = tierConfig[tier];
+  const config = tierConfig[tier] || tierConfig['new'];
 
   if (score < 30) {
     return (

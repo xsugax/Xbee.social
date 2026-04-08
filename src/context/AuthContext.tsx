@@ -21,10 +21,13 @@ interface AuthState {
 const AuthContext = createContext<AuthState | null>(null);
 
 // Convert DB profile to app User type
+const validTiers = ['new', 'building', 'established', 'trusted', 'authority', 'diamond', 'legendary'];
+const validVerifications = ['none', 'identity', 'authority', 'government', 'business', 'celebrity', 'creator', 'official'];
+
 function profileToUser(profile: Profile): User {
   const trust: TrustProfile = {
-    score: profile.trust_score,
-    tier: profile.trust_tier as User['trust']['tier'],
+    score: profile.trust_score ?? 50,
+    tier: (validTiers.includes(profile.trust_tier) ? profile.trust_tier : 'new') as User['trust']['tier'],
     identityVerified: profile.verification !== 'none',
     behaviorSignals: [],
     reachMultiplier: profile.trust_score >= 80 ? 2.0 : 1.0,
@@ -44,7 +47,7 @@ function profileToUser(profile: Profile): User {
     coverImage: (profile as any).cover_image || '',
     bio: profile.bio,
     verified: profile.verified,
-    verification: profile.verification as VerificationType,
+    verification: (validVerifications.includes(profile.verification) ? profile.verification : 'none') as VerificationType,
     authenticityScore: profile.trust_score,
     trust,
     followers: profile.followers_count,
@@ -190,7 +193,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { error: error.message };
+    if (error) {
+      if (error.message.toLowerCase().includes('email not confirmed')) {
+        return { error: 'Email not confirmed. Please check your inbox or contact support.' };
+      }
+      return { error: error.message };
+    }
     return {};
   }, [isSupabaseConfigured]);
 

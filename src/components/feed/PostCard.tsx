@@ -157,8 +157,8 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
   const shareMenuRef = useRef<HTMLDivElement>(null);
   const reduceMotion = useReducedMotion();
 
-  const isOwnPost = post.author.id === currentUser.id;
-  const isFollowingAuthor = checkFollowing ? checkFollowing(post.author.id) : false;
+  const isOwnPost = post.author?.id === currentUser.id;
+  const isFollowingAuthor = checkFollowing ? checkFollowing(post.author?.id) : false;
   const hasVoted = post.poll?.voted;
 
   // Track views on mount
@@ -242,7 +242,7 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
   }, [currentUser]);
 
   const totalComments = comments.reduce((sum, c) => sum + 1 + (c.replies?.length || 0), 0);
-  const isLowTrust = post.author.trust.score < 50;
+  const isLowTrust = (post.author?.trust?.score ?? 50) < 50;
   const isReachLimited = post.reachLimited;
 
   return (

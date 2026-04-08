@@ -509,25 +509,25 @@ BEGIN
   -- Get a recent Elon post and add comments
   SELECT id INTO post_id FROM public.posts WHERE author_id = id_elonmusk ORDER BY created_at DESC LIMIT 1;
   IF post_id IS NOT NULL THEN
-    INSERT INTO public.posts (id, author_id, content, parent_id, likes_count, reposts_count, replies_count, views_count, created_at) VALUES
-    (gen_random_uuid(), id_billgates, 'Impressive progress on Starship. The engineering challenges you''ve overcome are remarkable.', post_id, 45000, 5600, 1200, 8900000, NOW() - INTERVAL '1 hour'),
-    (gen_random_uuid(), id_therock, 'This is INCREDIBLE brother! The future is happening right now! 💪🚀', post_id, 67000, 8900, 2300, 12000000, NOW() - INTERVAL '90 minutes'),
-    (gen_random_uuid(), id_mrbeast, 'Can I film a video from Mars? Serious question.', post_id, 89000, 12000, 3400, 15000000, NOW() - INTERVAL '2 hours');
+    INSERT INTO public.comments (id, post_id, author_id, content, likes_count, created_at) VALUES
+    (gen_random_uuid(), post_id, id_billgates, 'Impressive progress on Starship. The engineering challenges you''ve overcome are remarkable.', 45000, NOW() - INTERVAL '1 hour'),
+    (gen_random_uuid(), post_id, id_therock, 'This is INCREDIBLE brother! The future is happening right now! 💪🚀', 67000, NOW() - INTERVAL '90 minutes'),
+    (gen_random_uuid(), post_id, id_mrbeast, 'Can I film a video from Mars? Serious question.', 89000, NOW() - INTERVAL '2 hours');
   END IF;
 
   -- Get a recent Taylor Swift post and add comments
   SELECT id INTO post_id FROM public.posts WHERE author_id = id_taylorswift ORDER BY created_at DESC LIMIT 1;
   IF post_id IS NOT NULL THEN
-    INSERT INTO public.posts (id, author_id, content, parent_id, likes_count, reposts_count, replies_count, views_count, created_at) VALUES
-    (gen_random_uuid(), id_beyonce, 'Can''t wait to hear it, sis. You always deliver. 👑✨', post_id, 234000, 34000, 8900, 45000000, NOW() - INTERVAL '30 minutes'),
-    (gen_random_uuid(), id_ryanreynolds, 'Will there be a friendship bracelet for me? I''ve been practicing my beadwork.', post_id, 156000, 23000, 12000, 34000000, NOW() - INTERVAL '45 minutes');
+    INSERT INTO public.comments (id, post_id, author_id, content, likes_count, created_at) VALUES
+    (gen_random_uuid(), post_id, id_beyonce, 'Can''t wait to hear it, sis. You always deliver. 👑✨', 234000, NOW() - INTERVAL '30 minutes'),
+    (gen_random_uuid(), post_id, id_ryanreynolds, 'Will there be a friendship bracelet for me? I''ve been practicing my beadwork.', 156000, NOW() - INTERVAL '45 minutes');
   END IF;
 
   -- Get a recent Barack Obama post and add comments
   SELECT id INTO post_id FROM public.posts WHERE author_id = id_barackobama ORDER BY created_at DESC LIMIT 1;
   IF post_id IS NOT NULL THEN
-    INSERT INTO public.posts (id, author_id, content, parent_id, likes_count, reposts_count, replies_count, views_count, created_at) VALUES
-    (gen_random_uuid(), id_billgates, 'Couldn''t agree more. Civic engagement is the foundation of everything else.', post_id, 56000, 7800, 2300, 12000000, NOW() - INTERVAL '3 hours');
+    INSERT INTO public.comments (id, post_id, author_id, content, likes_count, created_at) VALUES
+    (gen_random_uuid(), post_id, id_billgates, 'Couldn''t agree more. Civic engagement is the foundation of everything else.', 56000, NOW() - INTERVAL '3 hours');
   END IF;
 END $$;
 

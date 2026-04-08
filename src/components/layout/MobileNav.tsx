@@ -7,13 +7,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Home, Search, Bell, Mail, User, Feather, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
+import AccountSwitcher from '@/components/layout/AccountSwitcher';
 
 const mobileNavItems = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/explore', label: 'Explore', icon: Search },
   { href: '/notifications', label: 'Notifications', icon: Bell, badgeKey: 'notifications' as const },
   { href: '/messages', label: 'Messages', icon: Mail, badgeKey: 'messages' as const },
-  { href: '/profile', label: 'Profile', icon: User },
 ];
 
 export default function MobileNav() {
@@ -97,6 +97,9 @@ export default function MobileNav() {
               </Link>
             );
           })}
+          <div className="relative p-1">
+            <AccountSwitcher compact />
+          </div>
         </div>
       </nav>
     </>

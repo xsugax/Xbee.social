@@ -28,16 +28,20 @@ function ProfileContent() {
   const { isSupabaseConfigured } = useAuth();
   const [fetchedUser, setFetchedUser] = useState<User | null>(null);
   const [profilePosts, setProfilePosts] = useState<any[]>([]);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
 
   // Fetch other user's profile from Supabase
   useEffect(() => {
-    if (!userId || userId === currentUser.id || !isSupabaseConfigured) { setFetchedUser(null); return; }
+    if (!userId || userId === currentUser.id || !isSupabaseConfigured) { setFetchedUser(null); setIsLoadingProfile(false); return; }
+    setIsLoadingProfile(true);
+    setFetchedUser(null);
     (async () => {
       try {
         const supabase = getSupabase();
         const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
         if (data) setFetchedUser(profileToUser(data as any));
       } catch {}
+      setIsLoadingProfile(false);
     })();
   }, [userId, currentUser.id, isSupabaseConfigured]);
 
@@ -61,9 +65,28 @@ function ProfileContent() {
 
   const displayUser = useMemo(() => {
     if (!userId || userId === currentUser.id) return currentUser;
-    if (isSupabaseConfigured) return fetchedUser || currentUser;
+    if (isSupabaseConfigured) return fetchedUser;
     return mockUsers.find(u => u.id === userId) || currentUser;
   }, [userId, currentUser, isSupabaseConfigured, fetchedUser]);
+
+  // Show loading spinner while fetching profile
+  if (isLoadingProfile || (userId && userId !== currentUser.id && isSupabaseConfigured && !displayUser)) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <div className="w-8 h-8 border-2 border-xbee-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  // If user not found
+  if (!displayUser) {
+    return (
+      <div className="py-16 text-center">
+        <h2 className="text-lg font-bold text-theme-primary mb-1">User not found</h2>
+        <p className="text-sm text-theme-tertiary">This account may not exist.</p>
+      </div>
+    );
+  }
 
   const isOwnProfile = displayUser.id === currentUser.id;
   const isFollowingUser = checkFollowing ? checkFollowing(displayUser.id) : false;

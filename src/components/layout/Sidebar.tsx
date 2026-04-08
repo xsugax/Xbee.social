@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import TrustBadge from '@/components/trust/TrustBadge';
+import AccountSwitcher from '@/components/layout/AccountSwitcher';
 import { useApp } from '@/context/AppContext';
 
 const navItems = [
@@ -116,27 +117,8 @@ export default function Sidebar() {
           </motion.button>
         </div>
 
-        {/* User Profile */}
-        <Link href="/profile">
-          <motion.div className="flex items-center gap-3 p-3 rounded-full hover:bg-theme-hover transition-colors cursor-pointer" whileHover={{ scale: 1.02 }}>
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-xbee-primary to-xbee-secondary flex items-center justify-center text-white font-bold text-sm shrink-0 relative overflow-hidden">
-              {currentUser.avatar ? <img src={currentUser.avatar} alt={`${currentUser.displayName}'s avatar`} className="w-full h-full object-cover" /> : currentUser.displayName.charAt(0)}
-              <div className="absolute -bottom-0.5 -right-0.5">
-                <TrustBadge score={currentUser.trust.score} tier={currentUser.trust.tier} size="sm" verification={currentUser.verification} />
-              </div>
-            </div>
-            <div className="max-xl:hidden flex-1 min-w-0">
-              <div className="flex items-center gap-1">
-                <span className="font-bold text-sm text-theme-primary truncate">{currentUser.displayName}</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs text-theme-secondary">@{currentUser.username}</span>
-                <span className="text-[10px] text-emerald-400 font-bold">{currentUser.trust.score}</span>
-              </div>
-            </div>
-            <span className="max-xl:hidden text-theme-secondary"></span>
-          </motion.div>
-        </Link>
+        {/* User Profile / Account Switcher */}
+        <AccountSwitcher />
       </aside>
 
       {/* Quick Compose Modal */}

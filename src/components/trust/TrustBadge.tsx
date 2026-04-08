@@ -21,6 +21,8 @@ const tierConfig: Record<TrustTier, { label: string; color: string; bg: string; 
   established: { label: 'Established', color: 'text-blue-400', bg: 'bg-blue-400/10', border: 'border-blue-400/30', icon: Shield },
   trusted: { label: 'Trusted', color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-400/30', icon: ShieldCheck },
   authority: { label: 'Authority', color: 'text-xbee-primary', bg: 'bg-xbee-primary/10', border: 'border-xbee-primary/30', icon: Crown },
+  diamond: { label: 'Diamond', color: 'text-cyan-400', bg: 'bg-cyan-400/10', border: 'border-cyan-400/30', icon: Crown },
+  legendary: { label: 'Legendary', color: 'text-amber-400', bg: 'bg-amber-400/10', border: 'border-amber-400/30', icon: Crown },
 };
 
 const sizeMap = {

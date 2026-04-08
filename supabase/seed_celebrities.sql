@@ -5,6 +5,18 @@
 -- This creates auth users (non-loginable) + profiles + posts + comments
 -- Admin can manage all these accounts from the /admin panel
 
+-- Fix CHECK constraints to support new tiers
+ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_verification_check;
+ALTER TABLE public.profiles ADD CONSTRAINT profiles_verification_check
+  CHECK (verification IN ('none','identity','authority','government','business','celebrity','creator','official'));
+
+ALTER TABLE public.profiles DROP CONSTRAINT IF EXISTS profiles_trust_tier_check;
+ALTER TABLE public.profiles ADD CONSTRAINT profiles_trust_tier_check
+  CHECK (trust_tier IN ('new','building','established','trusted','authority','diamond','legendary'));
+
+-- Temporarily disable the auto-profile trigger so it doesn't conflict
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
+
 DO $$
 DECLARE
   -- Celebrity UUIDs (deterministic so we can reference them)
@@ -644,6 +656,11 @@ WHERE posts.id = sub.post_id;
 
 RAISE NOTICE 'Celebrity seed data inserted successfully!';
 END $$;
+
+-- Re-enable the auto-profile trigger for future signups
+CREATE TRIGGER on_auth_user_created
+  AFTER INSERT ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
 -- Final verification
 SELECT 'Profiles created: ' || COUNT(*) FROM profiles WHERE verified = true;

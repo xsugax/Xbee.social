@@ -44,7 +44,7 @@ const VERIFICATION_TYPES: { value: VerificationType; label: string; color: strin
   { value: 'creator', label: 'Creator (Pink)', color: 'text-pink-400', desc: 'Verified creator' },
 ];
 
-const TRUST_TIERS: TrustTier[] = ['new', 'building', 'established', 'trusted', 'authority'];
+const TRUST_TIERS: TrustTier[] = ['new', 'building', 'established', 'trusted', 'authority', 'diamond', 'legendary'];
 
 interface AdminLog {
   id: string;
@@ -230,7 +230,7 @@ export default function AdminPage() {
   };
 
   const handleUpdateTrust = (userId: string, score: number) => {
-    const tier: TrustTier = score >= 90 ? 'authority' : score >= 75 ? 'trusted' : score >= 55 ? 'established' : score >= 35 ? 'building' : 'new';
+    const tier: TrustTier = score >= 95 ? 'legendary' : score >= 90 ? 'diamond' : score >= 80 ? 'authority' : score >= 65 ? 'trusted' : score >= 45 ? 'established' : score >= 25 ? 'building' : 'new';
     updateUserInSystem(userId, {
       trust: {
         ...allUsers.find(u => u.id === userId)!.trust,

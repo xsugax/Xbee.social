@@ -37,6 +37,7 @@ export interface User {
   username: string;
   displayName: string;
   avatar: string;
+  coverImage?: string;
   bio: string;
   verified: boolean;
   verification: VerificationType;

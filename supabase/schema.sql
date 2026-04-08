@@ -15,6 +15,7 @@ CREATE TABLE public.profiles (
   display_name TEXT NOT NULL,
   email TEXT,
   avatar TEXT DEFAULT '',
+  cover_image TEXT DEFAULT '',
   bio TEXT DEFAULT '',
   verified BOOLEAN DEFAULT false,
   verification TEXT DEFAULT 'none' CHECK (verification IN ('none','identity','authority','government','business','celebrity','creator','official')),

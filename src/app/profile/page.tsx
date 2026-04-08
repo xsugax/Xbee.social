@@ -27,6 +27,7 @@ function ProfileContent() {
   const { currentUser, posts, updateProfile, followUser, unfollowUser, isFollowing: checkFollowing } = useApp();
   const { isSupabaseConfigured } = useAuth();
   const [fetchedUser, setFetchedUser] = useState<User | null>(null);
+  const [profilePosts, setProfilePosts] = useState<any[]>([]);
 
   // Fetch other user's profile from Supabase
   useEffect(() => {
@@ -36,6 +37,24 @@ function ProfileContent() {
         const supabase = getSupabase();
         const { data } = await supabase.from('profiles').select('*').eq('id', userId).single();
         if (data) setFetchedUser(profileToUser(data as any));
+      } catch {}
+    })();
+  }, [userId, currentUser.id, isSupabaseConfigured]);
+
+  // Fetch posts for the displayed user from Supabase
+  useEffect(() => {
+    if (!isSupabaseConfigured) { setProfilePosts([]); return; }
+    const targetId = userId && userId !== currentUser.id ? userId : currentUser.id;
+    (async () => {
+      try {
+        const supabase = getSupabase();
+        const { data } = await supabase
+          .from('posts')
+          .select('*, profiles!posts_author_id_fkey(*)')
+          .eq('author_id', targetId)
+          .order('created_at', { ascending: false })
+          .limit(100);
+        if (data) setProfilePosts(data);
       } catch {}
     })();
   }, [userId, currentUser.id, isSupabaseConfigured]);
@@ -54,11 +73,16 @@ function ProfileContent() {
   const coverKey = `xbee_cover_${currentUser.id}`;
   const avatarKey = `xbee_avatar_${currentUser.id}`;
   const [coverImage, setCoverImage] = useState<string | null>(() => {
+    if (!isOwnProfile) return null;
     try { return localStorage.getItem(coverKey); } catch { return null; }
   });
   const [avatarImage, setAvatarImage] = useState<string | null>(() => {
     try { return localStorage.getItem(avatarKey) || displayUser.avatar || null; } catch { return displayUser.avatar || null; }
   });
+
+  // For other users, show their cover image from DB
+  const effectiveCoverImage = isOwnProfile ? coverImage : (displayUser.coverImage || null);
+
   const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState(currentUser.displayName);
   const [editUsername, setEditUsername] = useState(currentUser.username);
@@ -67,11 +91,38 @@ function ProfileContent() {
   const coverInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
-  const userPosts = posts.filter(p => p.author.id === displayUser.id);
+  // Convert Supabase post rows to app Post objects for profile view
+  const supabasePosts = useMemo(() => {
+    if (!isSupabaseConfigured || profilePosts.length === 0) return [];
+    return profilePosts.map((row: any) => {
+      const author = row.profiles ? profileToUser(row.profiles) : displayUser;
+      return {
+        id: row.id,
+        author,
+        content: row.content,
+        media: row.media || [],
+        poll: row.poll || undefined,
+        likes: row.likes_count,
+        reposts: row.reposts_count,
+        replies: row.replies_count,
+        views: row.views_count,
+        liked: false,
+        reposted: false,
+        bookmarked: false,
+        createdAt: row.created_at,
+        credibility: { authorTrust: author.trust.score, contentScore: 80, engagementQuality: 1.0, viralityBrake: false },
+      };
+    });
+  }, [profilePosts, displayUser, isSupabaseConfigured]);
+
+  // Use Supabase posts if available, otherwise filter from global posts
+  const userPosts = isSupabaseConfigured && supabasePosts.length > 0
+    ? supabasePosts
+    : posts.filter(p => p.author.id === displayUser.id);
   const displayPosts = useMemo(() => {
     switch (activeTab) {
-      case 'replies': return userPosts.filter(p => p.replyTo || (p.content.startsWith('@') && p.content.length > 1) || p.replies > 0);
-      case 'media': return userPosts.filter(p => p.media && p.media.length > 0);
+      case 'replies': return userPosts.filter((p: any) => p.replyTo || (p.content.startsWith('@') && p.content.length > 1) || p.replies > 0);
+      case 'media': return userPosts.filter((p: any) => p.media && p.media.length > 0);
       case 'likes': return posts.filter(p => p.liked);
       default: return userPosts;
     }
@@ -142,8 +193,8 @@ function ProfileContent() {
         )}
         onClick={() => isOwnProfile && coverInputRef.current?.click()}
       >
-        {coverImage && (
-          <img src={coverImage} alt={`${displayUser.displayName}'s cover photo`} className="absolute inset-0 w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
+        {effectiveCoverImage && (
+          <img src={effectiveCoverImage} alt={`${displayUser.displayName}'s cover photo`} className="absolute inset-0 w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
         )}
         <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors" />
         {isOwnProfile && (

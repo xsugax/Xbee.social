@@ -10,6 +10,7 @@ export interface Database {
           display_name: string;
           email: string | null;
           avatar: string;
+          cover_image: string;
           bio: string;
           verified: boolean;
           verification: string;
@@ -31,6 +32,7 @@ export interface Database {
           display_name: string;
           email?: string | null;
           avatar?: string;
+          cover_image?: string;
           bio?: string;
           verified?: boolean;
           verification?: string;
@@ -51,6 +53,7 @@ export interface Database {
           display_name?: string;
           email?: string | null;
           avatar?: string;
+          cover_image?: string;
           bio?: string;
           verified?: boolean;
           verification?: string;

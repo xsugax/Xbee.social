@@ -41,6 +41,7 @@ function profileToUser(profile: Profile): User {
     username: profile.username,
     displayName: profile.display_name,
     avatar: profile.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.username}`,
+    coverImage: (profile as any).cover_image || '',
     bio: profile.bio,
     verified: profile.verified,
     verification: profile.verification as VerificationType,

@@ -60,16 +60,11 @@ export default function TrustBadge({ score, tier, size = 'sm', showScore = false
   if (verification === 'authority') {
     return (
       <motion.div
-        className={cn(
-          'inline-flex items-center gap-1',
-          showLabel && 'px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30',
-        )}
+        className="inline-flex items-center gap-1"
         whileHover={{ scale: 1.05 }}
         title="Verified Organization / Public Figure"
       >
         <VerifiedCheckmark className={sizeMap[size]} color="#F59E0B" />
-        {showScore && <span className="text-[11px] font-bold text-amber-400">{score}</span>}
-        {showLabel && <span className="text-[11px] font-medium text-amber-400">Verified</span>}
       </motion.div>
     );
   }
@@ -78,16 +73,11 @@ export default function TrustBadge({ score, tier, size = 'sm', showScore = false
   if (verification === 'government') {
     return (
       <motion.div
-        className={cn(
-          'inline-flex items-center gap-1',
-          showLabel && 'px-2 py-0.5 rounded-full bg-red-500/10 border border-red-500/30',
-        )}
+        className="inline-flex items-center gap-1"
         whileHover={{ scale: 1.05 }}
         title="Government / Official"
       >
         <VerifiedCheckmark className={sizeMap[size]} color="#EF4444" />
-        {showScore && <span className="text-[11px] font-bold text-red-400">{score}</span>}
-        {showLabel && <span className="text-[11px] font-medium text-red-400">Official</span>}
       </motion.div>
     );
   }
@@ -96,34 +86,24 @@ export default function TrustBadge({ score, tier, size = 'sm', showScore = false
   if (verification === 'business') {
     return (
       <motion.div
-        className={cn(
-          'inline-flex items-center gap-1',
-          showLabel && 'px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30',
-        )}
+        className="inline-flex items-center gap-1"
         whileHover={{ scale: 1.05 }}
         title="Verified Business"
       >
         <VerifiedCheckmark className={sizeMap[size]} color="#10B981" />
-        {showScore && <span className="text-[11px] font-bold text-emerald-400">{score}</span>}
-        {showLabel && <span className="text-[11px] font-medium text-emerald-400">Business</span>}
       </motion.div>
     );
   }
 
-  // Celebrity = Purple verified badge
+  // Celebrity = Blue verified badge
   if (verification === 'celebrity') {
     return (
       <motion.div
-        className={cn(
-          'inline-flex items-center gap-1',
-          showLabel && 'px-2 py-0.5 rounded-full bg-purple-500/10 border border-purple-500/30',
-        )}
+        className="inline-flex items-center gap-1"
         whileHover={{ scale: 1.05 }}
-        title="Celebrity / Public Figure"
+        title="Verified Celebrity"
       >
-        <VerifiedCheckmark className={sizeMap[size]} color="#A855F7" />
-        {showScore && <span className="text-[11px] font-bold text-purple-400">{score}</span>}
-        {showLabel && <span className="text-[11px] font-medium text-purple-400">Celebrity</span>}
+        <VerifiedCheckmark className={sizeMap[size]} color="#1DA1F2" />
       </motion.div>
     );
   }
@@ -132,16 +112,11 @@ export default function TrustBadge({ score, tier, size = 'sm', showScore = false
   if (verification === 'creator') {
     return (
       <motion.div
-        className={cn(
-          'inline-flex items-center gap-1',
-          showLabel && 'px-2 py-0.5 rounded-full bg-pink-500/10 border border-pink-500/30',
-        )}
+        className="inline-flex items-center gap-1"
         whileHover={{ scale: 1.05 }}
         title="Verified Creator"
       >
         <VerifiedCheckmark className={sizeMap[size]} color="#EC4899" />
-        {showScore && <span className="text-[11px] font-bold text-pink-400">{score}</span>}
-        {showLabel && <span className="text-[11px] font-medium text-pink-400">Creator</span>}
       </motion.div>
     );
   }
@@ -150,16 +125,11 @@ export default function TrustBadge({ score, tier, size = 'sm', showScore = false
   if (verification === 'identity') {
     return (
       <motion.div
-        className={cn(
-          'inline-flex items-center gap-1',
-          showLabel && 'px-2 py-0.5 rounded-full bg-blue-500/10 border border-blue-500/30',
-        )}
+        className="inline-flex items-center gap-1"
         whileHover={{ scale: 1.05 }}
         title="Verified Identity"
       >
         <VerifiedCheckmark className={sizeMap[size]} color="#1DA1F2" />
-        {showScore && <span className="text-[11px] font-bold text-blue-400">{score}</span>}
-        {showLabel && <span className="text-[11px] font-medium text-blue-400">Verified</span>}
       </motion.div>
     );
   }
@@ -168,16 +138,11 @@ export default function TrustBadge({ score, tier, size = 'sm', showScore = false
   if (verification === 'official') {
     return (
       <motion.div
-        className={cn(
-          'inline-flex items-center gap-1',
-          showLabel && 'px-2 py-0.5 rounded-full bg-yellow-500/10 border border-yellow-500/30',
-        )}
+        className="inline-flex items-center gap-1"
         whileHover={{ scale: 1.05 }}
         title="Official Account"
       >
         <VerifiedCheckmark className={sizeMap[size]} color="#F59E0B" />
-        {showScore && <span className="text-[11px] font-bold text-yellow-400">{score}</span>}
-        {showLabel && <span className="text-[11px] font-medium text-yellow-400">Official</span>}
       </motion.div>
     );
   }

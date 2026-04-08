@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils';
 import Sidebar from './Sidebar';
 import RightSidebar from './RightSidebar';
 import MobileNav from './MobileNav';
-import XbeeAI from '@/components/ai/XbeeAI';
 import { useLayout } from '@/context/LayoutContext';
 
 export default function LayoutShell({ children }: { children: React.ReactNode }) {
@@ -29,7 +28,6 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
       </main>
       <RightSidebar />
       <MobileNav />
-      <XbeeAI />
     </div>
   );
 }

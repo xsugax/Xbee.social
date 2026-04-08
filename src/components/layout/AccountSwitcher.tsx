@@ -35,13 +35,16 @@ function saveAccounts(accounts: SavedAccount[]) {
 }
 
 export default function AccountSwitcher({ compact = false }: { compact?: boolean }) {
-  const { user, profile, signIn, signOut, isSupabaseConfigured } = useAuth();
+  const { user, profile, signIn, signUp, signOut, isSupabaseConfigured } = useAuth();
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [formMode, setFormMode] = useState<'login' | 'create'>('login');
   const [accounts, setAccounts] = useState<SavedAccount[]>([]);
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [loginUsername, setLoginUsername] = useState('');
+  const [loginDisplayName, setLoginDisplayName] = useState('');
   const [loginError, setLoginError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -101,16 +104,37 @@ export default function AccountSwitcher({ compact = false }: { compact?: boolean
     setIsLoading(true);
     setLoginError('');
 
-    // Sign out current user first
-    await signOut();
+    if (formMode === 'create') {
+      // Create new account
+      if (!loginUsername.trim() || !loginDisplayName.trim()) {
+        setLoginError('All fields are required');
+        setIsLoading(false);
+        return;
+      }
+      const result = await signUp(loginEmail.trim(), loginPassword.trim(), loginUsername.trim(), loginDisplayName.trim());
+      if (result.error) {
+        setLoginError(result.error);
+        setIsLoading(false);
+        return;
+      }
+      // If no auto-login after signup, sign in explicitly
+      if (result.needsConfirmation) {
+        setLoginError('Account created! Check your email to confirm, then sign in.');
+        setFormMode('login');
+        setIsLoading(false);
+        return;
+      }
+    } else {
+      // Sign out current user first
+      await signOut();
 
-    // Sign in with new credentials
-    const result = await signIn(loginEmail.trim(), loginPassword.trim());
-
-    if (result.error) {
-      setLoginError(result.error);
-      setIsLoading(false);
-      return;
+      // Sign in with new credentials
+      const result = await signIn(loginEmail.trim(), loginPassword.trim());
+      if (result.error) {
+        setLoginError(result.error);
+        setIsLoading(false);
+        return;
+      }
     }
 
     // Account will be added via the useEffect when user/profile change
@@ -118,6 +142,9 @@ export default function AccountSwitcher({ compact = false }: { compact?: boolean
     setIsOpen(false);
     setLoginEmail('');
     setLoginPassword('');
+    setLoginUsername('');
+    setLoginDisplayName('');
+    setFormMode('login');
     setIsLoading(false);
   };
 
@@ -141,7 +168,7 @@ export default function AccountSwitcher({ compact = false }: { compact?: boolean
         {compact ? (
           <div className="w-7 h-7 rounded-full overflow-hidden shrink-0 ring-2 ring-xbee-primary/30">
             {profile.avatar ? (
-              <img src={profile.avatar} alt={profile.displayName} className="w-full h-full object-cover" />
+              <img src={profile.avatar} alt={profile.displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
             ) : (
               <div className="w-full h-full bg-gradient-to-br from-xbee-primary to-xbee-secondary flex items-center justify-center text-white font-bold text-xs">
                 {profile.displayName.charAt(0)}
@@ -152,7 +179,7 @@ export default function AccountSwitcher({ compact = false }: { compact?: boolean
           <>
             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-xbee-primary to-xbee-secondary flex items-center justify-center text-white font-bold text-sm shrink-0 relative overflow-hidden">
               {profile.avatar ? (
-                <img src={profile.avatar} alt={profile.displayName} className="w-full h-full object-cover" />
+                <img src={profile.avatar} alt={profile.displayName} className="w-full h-full object-cover" referrerPolicy="no-referrer" loading="lazy" />
               ) : (
                 profile.displayName.charAt(0)
               )}
@@ -238,13 +265,43 @@ export default function AccountSwitcher({ compact = false }: { compact?: boolean
                   animate={{ opacity: 1, height: 'auto' }}
                   exit={{ opacity: 0, height: 0 }}
                 >
-                  <p className="text-xs font-bold text-theme-tertiary uppercase tracking-wider mb-2">
-                    {loginEmail ? 'Enter password to switch' : 'Add account'}
-                  </p>
+                  {/* Toggle tabs */}
+                  <div className="flex gap-1 mb-2 p-0.5 rounded-lg bg-theme-primary">
+                    <button
+                      className={cn('flex-1 py-1.5 text-xs font-bold rounded-md transition-colors', formMode === 'login' ? 'bg-xbee-primary text-white' : 'text-theme-tertiary hover:text-theme-primary')}
+                      onClick={() => { setFormMode('login'); setLoginError(''); }}
+                    >
+                      Sign In
+                    </button>
+                    <button
+                      className={cn('flex-1 py-1.5 text-xs font-bold rounded-md transition-colors', formMode === 'create' ? 'bg-xbee-primary text-white' : 'text-theme-tertiary hover:text-theme-primary')}
+                      onClick={() => { setFormMode('create'); setLoginError(''); }}
+                    >
+                      Create Account
+                    </button>
+                  </div>
                   <div className="space-y-2">
+                    {formMode === 'create' && (
+                      <>
+                        <input
+                          type="text"
+                          placeholder="Display name"
+                          value={loginDisplayName}
+                          onChange={(e) => setLoginDisplayName(e.target.value)}
+                          className="w-full px-3 py-2 text-sm rounded-lg bg-theme-primary border border-theme text-theme-primary outline-none focus:border-xbee-primary transition-colors"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Username"
+                          value={loginUsername}
+                          onChange={(e) => setLoginUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                          className="w-full px-3 py-2 text-sm rounded-lg bg-theme-primary border border-theme text-theme-primary outline-none focus:border-xbee-primary transition-colors"
+                        />
+                      </>
+                    )}
                     <input
                       type="text"
-                      placeholder="Email or username"
+                      placeholder={formMode === 'login' ? 'Email or username' : 'Email'}
                       value={loginEmail}
                       onChange={(e) => setLoginEmail(e.target.value)}
                       className="w-full px-3 py-2 text-sm rounded-lg bg-theme-primary border border-theme text-theme-primary outline-none focus:border-xbee-primary transition-colors"
@@ -266,14 +323,14 @@ export default function AccountSwitcher({ compact = false }: { compact?: boolean
                       <motion.button
                         className="flex-1 py-2 text-sm rounded-lg bg-xbee-primary text-white font-medium disabled:opacity-50"
                         onClick={handleAddAccount}
-                        disabled={isLoading || !loginEmail.trim() || !loginPassword.trim()}
+                        disabled={isLoading || !loginEmail.trim() || !loginPassword.trim() || (formMode === 'create' && (!loginUsername.trim() || !loginDisplayName.trim()))}
                         whileTap={{ scale: 0.97 }}
                       >
-                        {isLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : 'Sign in'}
+                        {isLoading ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> : formMode === 'login' ? 'Sign in' : 'Create'}
                       </motion.button>
                       <motion.button
                         className="px-3 py-2 text-sm rounded-lg border border-theme text-theme-secondary font-medium"
-                        onClick={() => { setShowAddForm(false); setLoginEmail(''); setLoginPassword(''); setLoginError(''); }}
+                        onClick={() => { setShowAddForm(false); setLoginEmail(''); setLoginPassword(''); setLoginUsername(''); setLoginDisplayName(''); setLoginError(''); setFormMode('login'); }}
                         whileTap={{ scale: 0.97 }}
                       >
                         Cancel

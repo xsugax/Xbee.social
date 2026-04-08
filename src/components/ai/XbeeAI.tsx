@@ -307,6 +307,10 @@ function xbeeThink(message: string): { thinking: ThinkingStep[]; response: strin
   return { thinking, response, confidence };
 }
 
+// Export the brain for use as AGI companion in messages
+export { xbeeThink };
+export type { ThinkingStep };
+
 // ========== UI COMPONENT ==========
 
 export default function XbeeAI() {

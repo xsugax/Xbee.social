@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Settings, PenSquare, Mail, X, UserPlus, Loader2 } from 'lucide-react';
 import ChatList from '@/components/messages/ChatList';
@@ -11,7 +11,9 @@ import { useApp } from '@/context/AppContext';
 import { useAuth, profileToUser } from '@/context/AuthContext';
 import { getSupabase } from '@/lib/supabase';
 import { mockUsers } from '@/lib/mockData';
-import { User } from '@/types';
+import { User, Message } from '@/types';
+import { AGI_BOT_ID, agiBotUser, createAgiConversation, getAgiWelcomeMessage } from '@/lib/agiBot';
+import { xbeeThink } from '@/components/ai/XbeeAI';
 
 export default function MessagesPage() {
   const { conversations, currentUser, activeConvId, setActiveConvId, loadConversations } = useApp();
@@ -23,6 +25,14 @@ export default function MessagesPage() {
   const [liveUsers, setLiveUsers] = useState<User[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [startingConvo, setStartingConvo] = useState<string | null>(null);
+
+  // AGI companion state
+  const [agiMessages, setAgiMessages] = useState<Message[]>([getAgiWelcomeMessage()]);
+  const [agiTyping, setAgiTyping] = useState(false);
+  const agiConversation = {
+    ...createAgiConversation(currentUser),
+    lastMessage: agiMessages[agiMessages.length - 1],
+  };
 
   // Search real profiles for new message
   useEffect(() => {
@@ -51,12 +61,16 @@ export default function MessagesPage() {
     return () => { controller.abort(); clearTimeout(timeout); };
   }, [newMsgSearch, showNewMsg, isSupabaseConfigured, currentUser.id]);
 
-  const filteredConvs = searchQuery.trim()
-    ? conversations.filter(c => c.participants.some(p => p.displayName.toLowerCase().includes(searchQuery.toLowerCase())))
-    : conversations;
+  // Inject AGI companion at the top of conversations
+  const allConvs = [agiConversation, ...conversations];
 
-  const activeConv = conversations.find(c => c.id === activeConvId);
-  const otherUser = activeConv?.participants.find(p => p.id !== currentUser.id);
+  const filteredConvs = searchQuery.trim()
+    ? allConvs.filter(c => c.participants.some(p => p.displayName.toLowerCase().includes(searchQuery.toLowerCase())))
+    : allConvs;
+
+  const isAgiActive = activeConvId === 'conv-xbee-agi';
+  const activeConv = isAgiActive ? agiConversation : conversations.find(c => c.id === activeConvId);
+  const otherUser = isAgiActive ? agiBotUser : activeConv?.participants.find(p => p.id !== currentUser.id);
 
   // Users to show in new message modal
   const existingUserIds = new Set(conversations.flatMap(c => c.participants.map(p => p.id)));
@@ -148,7 +162,16 @@ export default function MessagesPage() {
 
       {/* Chat Window */}
       <div className={cn('flex-1 flex flex-col', !activeConvId && 'max-lg:hidden')}>
-        {activeConvId && otherUser ? (
+        {isAgiActive ? (
+          <AgiChatWindow
+            messages={agiMessages}
+            setMessages={setAgiMessages}
+            currentUser={currentUser}
+            agiTyping={agiTyping}
+            setAgiTyping={setAgiTyping}
+            onBack={() => setActiveConvId(null)}
+          />
+        ) : activeConvId && otherUser ? (
           <ChatWindow otherUser={otherUser} conversation={activeConv} onBack={() => setActiveConvId(null)} />
         ) : (
           <div className="flex-1 flex items-center justify-center">
@@ -220,6 +243,164 @@ export default function MessagesPage() {
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ========== AGI Companion Chat Window ==========
+import { ArrowLeft as ArrowLeftIcon, Send as SendIcon, Brain } from 'lucide-react';
+
+function AgiChatWindow({
+  messages, setMessages, currentUser, agiTyping, setAgiTyping, onBack
+}: {
+  messages: Message[];
+  setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
+  currentUser: User;
+  agiTyping: boolean;
+  setAgiTyping: (v: boolean) => void;
+  onBack: () => void;
+}) {
+  const [input, setInput] = useState('');
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages, agiTyping]);
+
+  const handleSend = () => {
+    const text = input.trim();
+    if (!text) return;
+
+    const userMsg: Message = {
+      id: `agi-u-${Date.now()}`,
+      senderId: currentUser.id,
+      content: text,
+      type: 'text',
+      createdAt: new Date().toISOString(),
+      read: true,
+      encrypted: false,
+    };
+    setMessages(prev => [...prev, userMsg]);
+    setInput('');
+    setAgiTyping(true);
+
+    // Simulate typing delay then respond
+    const delay = 800 + Math.random() * 1200;
+    setTimeout(() => {
+      const result = xbeeThink(text);
+      const botMsg: Message = {
+        id: `agi-b-${Date.now()}`,
+        senderId: AGI_BOT_ID,
+        content: result.response,
+        type: 'text',
+        createdAt: new Date().toISOString(),
+        read: true,
+        encrypted: false,
+      };
+      setMessages(prev => [...prev, botMsg]);
+      setAgiTyping(false);
+    }, delay);
+  };
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-theme glass shrink-0">
+        <motion.button className="p-1.5 rounded-full hover:bg-theme-hover lg:hidden" onClick={onBack} whileTap={{ scale: 0.9 }}>
+          <ArrowLeftIcon className="w-5 h-5 text-theme-primary" />
+        </motion.button>
+        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-xbee-primary via-xbee-secondary to-xbee-accent flex items-center justify-center">
+          <Brain className="w-5 h-5 text-white" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="font-bold text-sm text-theme-primary">Xbee AGI</span>
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-xbee-primary/20 text-xbee-primary">AI</span>
+          </div>
+          <p className="text-xs text-emerald-400">Always online</p>
+        </div>
+      </div>
+
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+        {messages.map(msg => {
+          const isMe = msg.senderId === currentUser.id;
+          return (
+            <motion.div
+              key={msg.id}
+              className={cn('flex', isMe ? 'justify-end' : 'justify-start')}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              {!isMe && (
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-xbee-primary to-xbee-secondary flex items-center justify-center mr-2 shrink-0 mt-1">
+                  <Brain className="w-3.5 h-3.5 text-white" />
+                </div>
+              )}
+              <div className={cn(
+                'max-w-[80%] rounded-2xl px-4 py-2.5 text-sm leading-relaxed whitespace-pre-wrap',
+                isMe
+                  ? 'bg-xbee-primary text-white rounded-br-sm'
+                  : 'bg-theme-hover text-theme-primary rounded-bl-sm'
+              )}>
+                {msg.content}
+              </div>
+            </motion.div>
+          );
+        })}
+        {agiTyping && (
+          <motion.div className="flex justify-start" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-xbee-primary to-xbee-secondary flex items-center justify-center mr-2 shrink-0">
+              <Brain className="w-3.5 h-3.5 text-white" />
+            </div>
+            <div className="bg-theme-hover rounded-2xl rounded-bl-sm px-4 py-3 flex items-center gap-1">
+              <div className="w-2 h-2 rounded-full bg-theme-tertiary animate-bounce" style={{ animationDelay: '0ms' }} />
+              <div className="w-2 h-2 rounded-full bg-theme-tertiary animate-bounce" style={{ animationDelay: '150ms' }} />
+              <div className="w-2 h-2 rounded-full bg-theme-tertiary animate-bounce" style={{ animationDelay: '300ms' }} />
+            </div>
+          </motion.div>
+        )}
+        <div ref={bottomRef} />
+      </div>
+
+      {/* Quick prompts for empty state */}
+      {messages.length <= 1 && (
+        <div className="px-4 py-2 border-t border-theme flex gap-2 overflow-x-auto scrollbar-hide">
+          {['Write me a post', 'Help me with code', 'Translate something', 'Give me ideas'].map(prompt => (
+            <button
+              key={prompt}
+              className="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium bg-xbee-primary/10 text-xbee-primary hover:bg-xbee-primary/20 transition-colors"
+              onClick={() => { setInput(prompt); }}
+            >
+              {prompt}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Input */}
+      <div className="border-t border-theme px-4 py-3 shrink-0">
+        <div className="flex items-center gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
+            placeholder="Ask Xbee AGI anything..."
+            className="flex-1 bg-theme-tertiary text-theme-primary rounded-full px-4 py-2.5 text-sm placeholder:text-theme-tertiary outline-none focus:ring-2 focus:ring-xbee-primary/30 transition-all"
+          />
+          <motion.button
+            className={cn(
+              'p-2.5 rounded-full transition-colors',
+              input.trim() ? 'bg-xbee-primary text-white' : 'text-theme-tertiary bg-theme-hover'
+            )}
+            onClick={handleSend}
+            whileTap={{ scale: 0.9 }}
+            disabled={!input.trim()}
+          >
+            <SendIcon className="w-5 h-5" />
+          </motion.button>
+        </div>
+      </div>
     </div>
   );
 }

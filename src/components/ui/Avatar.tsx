@@ -49,8 +49,10 @@ export default function Avatar({ src, name, size = 'md', verified, online, class
         <img
           src={src}
           alt={`${name}'s avatar`}
-          className={cn('rounded-full object-cover', sizeClasses[size])}
+          className={cn('rounded-full object-cover bg-theme-hover', sizeClasses[size])}
           onError={() => setImgError(true)}
+          loading="lazy"
+          referrerPolicy="no-referrer"
         />
       ) : (
         <div

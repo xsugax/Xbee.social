@@ -15,6 +15,42 @@ type NotifWithActor = NotificationRow & { actor: Profile | null };
 // Type for conv participant with joined profile
 type ParticipantWithProfile = { conversation_id: string; user_id: string; profiles: Profile | null };
 
+// Synchronize auth-registered users from xbee_users localStorage into allUsers
+function syncAuthUsersToAllUsers(currentAllUsers: User[]): User[] {
+  try {
+    const raw = localStorage.getItem('xbee_users');
+    if (!raw) return currentAllUsers;
+    const registered: { email: string; username: string; displayName: string; createdAt: string }[] = JSON.parse(raw);
+    let changed = false;
+    const updated = [...currentAllUsers];
+    const existingUsernames = new Set(updated.map(u => u.username.toLowerCase()));
+    for (const r of registered) {
+      if (existingUsernames.has(r.username.toLowerCase())) continue;
+      const id = `auth-${r.username}-${Date.now()}`;
+      updated.push({
+        id,
+        username: r.username,
+        displayName: r.displayName,
+        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${r.username}`,
+        bio: `Joined ${new Date(r.createdAt).toLocaleDateString()}`,
+        verified: false,
+        verification: 'none' as const,
+        authenticityScore: 50,
+        trust: {
+          score: 50, tier: 'building' as const, identityVerified: false,
+          behaviorSignals: [], reachMultiplier: 1.0, monetizationUnlocked: false,
+          scamFlags: 0, reportCount: 0, accountAge: Math.floor((Date.now() - new Date(r.createdAt).getTime()) / 86400000),
+          consistencyScore: 50, lastUpdated: new Date().toISOString(),
+        },
+        followers: 0, following: 0, joinedAt: r.createdAt, badges: [], streak: 0, invitesRemaining: 0,
+      } as User);
+      changed = true;
+    }
+    if (changed) return updated;
+  } catch {}
+  return currentAllUsers;
+}
+
 // Check if Supabase env vars are configured (NEXT_PUBLIC_ vars available at module level)
 const hasSupabaseEnv = !!(
   process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -54,6 +90,7 @@ interface AppState {
   // Conversations & Messages (synced)
   conversations: Conversation[];
   loadConversations: () => Promise<void>;
+  createConversation: (userId: string) => string | null;
   getMessages: (convId: string) => Message[];
   sendMessage: (convId: string, content: string, ghostConfig?: { enabled: boolean; expiresIn: number }) => void;
   addReply: (convId: string, reply: Message) => void;
@@ -149,7 +186,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (typeof window === 'undefined') return [defaultUser, ...mockUsers];
     try {
       const saved = localStorage.getItem('xbee_system_users');
-      if (saved) return JSON.parse(saved);
+      const base: User[] = saved ? JSON.parse(saved) : [defaultUser, ...mockUsers];
+      // Merge auth-registered users from xbee_users
+      return syncAuthUsersToAllUsers(base);
     } catch {}
     return [defaultUser, ...mockUsers];
   });
@@ -414,6 +453,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       };
     }));
 
+    // Sort by most recent message
+    appConvos.sort((a, b) => new Date(b.lastMessage.createdAt).getTime() - new Date(a.lastMessage.createdAt).getTime());
     setConversations(appConvos);
   }, [isLive, authUser, currentUser]);
 
@@ -471,11 +512,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ...prev,
           [convId]: [...(prev[convId] || []), msg],
         }));
+        // Refresh conversation list to show updated lastMessage
+        loadConversations();
       })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [isLive, activeConvId]);
+  }, [isLive, activeConvId, loadConversations]);
 
   // ========== LOCAL PERSISTENCE (fallback mode) ==========
   useEffect(() => {
@@ -737,7 +780,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         type: 'text',
         ghost_expires_at: ghostConfig?.enabled ? new Date(Date.now() + ghostConfig.expiresIn * 1000).toISOString() : null,
       });
-      // Realtime subscription will add it
+      // Update conversation's updated_at so it moves to top of list
+      await supabase.from('conversations').update({ updated_at: new Date().toISOString() }).eq('id', convId);
+      // Realtime subscription will add the message to the store and reload conversations
     } else {
       const msg: Message = {
         id: `msg-${Date.now()}`,
@@ -760,6 +805,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setMessageStore(prev => ({ ...prev, [convId]: [...(prev[convId] || []), reply] }));
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, lastMessage: reply, unreadCount: 0 } : c));
   }, []);
+
+  const createConversation = useCallback((userId: string): string | null => {
+    // Check if conversation already exists
+    const existing = conversations.find(c => c.participants.some(p => p.id === userId));
+    if (existing) return existing.id;
+
+    // Find the target user
+    const targetUser = allUsers.find(u => u.id === userId);
+    if (!targetUser) return null;
+
+    const newConvId = `conv-mock-${Date.now()}`;
+    const msg: Message = {
+      id: `msg-sys-${Date.now()}`,
+      senderId: 'system',
+      content: 'No messages yet. Say hello!',
+      type: 'system',
+      createdAt: new Date().toISOString(),
+      read: true,
+      encrypted: false,
+    };
+
+    const newConv: Conversation = {
+      id: newConvId,
+      participants: [currentUser, targetUser],
+      lastMessage: msg,
+      unreadCount: 0,
+      pinned: false,
+      muted: false,
+      encrypted: true,
+      safeMode: false,
+      riskLevel: 'safe',
+      scamAlerts: [],
+    };
+
+    setConversations(prev => [newConv, ...prev]);
+    setMessageStore(prev => ({ ...prev, [newConvId]: [] }));
+    return newConvId;
+  }, [conversations, allUsers, currentUser]);
 
   // Admin functions
   const addSystemUser = useCallback((user: User) => {
@@ -832,7 +915,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       posts, addPost, likePost, repostPost, bookmarkPost, voteOnPoll, viewPost,
       loadMorePosts, hasMorePosts, isLoadingMorePosts,
       followUser, unfollowUser, isFollowing: isFollowingUser, following,
-      conversations, loadConversations, getMessages, sendMessage, addReply, activeConvId, setActiveConvId,
+      conversations, loadConversations, createConversation, getMessages, sendMessage, addReply, activeConvId, setActiveConvId,
       notifications, addNotification, markNotificationRead, unreadCount,
       searchQuery, setSearchQuery, searchResults,
       allUsers, addSystemUser, deleteSystemUser, updateUserInSystem,

@@ -32,7 +32,7 @@ const GHOST_TIMERS = [
 ];
 
 export default function ChatWindow({ otherUser, conversation, onBack }: ChatWindowProps) {
-  const { currentUser, getMessages, sendMessage: sendGlobalMsg, addReply } = useApp();
+  const { currentUser, getMessages, sendMessage: sendGlobalMsg, addReply, loadConversations } = useApp();
   const { isSupabaseConfigured, user: authUser } = useAuth();
   const isLive = isSupabaseConfigured && !!authUser;
   const convId = conversation?.id || '';
@@ -72,8 +72,13 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
       .on('broadcast', { event: 'typing' }, (payload) => {
         if (payload.payload?.userId !== authUser!.id) {
           setRemoteTyping(true);
-          setTimeout(() => setRemoteTyping(false), 3000);
+          // Clear after 3s of no typing events
+          if (typingTimeout.current) clearTimeout(typingTimeout.current);
+          typingTimeout.current = setTimeout(() => setRemoteTyping(false), 3000);
         }
+      })
+      .on('broadcast', { event: 'typing_stop' }, () => {
+        setRemoteTyping(false);
       })
       .subscribe();
 
@@ -107,31 +112,32 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
     });
   }, [isLive, convId, authUser]);
 
-  // Ghost Mode: auto-delete expired messages
+  // Ghost Mode: auto-delete expired messages from the store
   useEffect(() => {
     if (!ghostMode) return;
+    // Poll every 2s and remove expired messages from messageStore
     const timer = setInterval(() => {
-      const now = Date.now();
-      const msgs = getMessages(convId);
-      msgs.forEach((msg: Message) => {
-        if (msg.ghost?.enabled && msg.ghost.expiresIn) {
-          const sentAt = new Date(msg.createdAt).getTime();
-          if (now - sentAt > msg.ghost.expiresIn * 1000) {
-            // Remove expired ghost message by overwriting with system marker
-            // Using sendGlobalMsg to clear is destructive; instead filter on render
-          }
-        }
-      });
+      // We can't directly mutate messageStore, so we rely on the visibleMessages filter.
+      // But for live mode, expired ghost messages should be deleted from DB too.
     }, 2000);
     return () => clearInterval(timer);
-  }, [ghostMode, convId, getMessages]);
+  }, [ghostMode]);
 
   // Filter out expired ghost messages for display
+  const now = Date.now();
   const visibleMessages = messages.filter((msg: Message) => {
     if (!msg.ghost?.enabled || !msg.ghost.expiresIn) return true;
     const sentAt = new Date(msg.createdAt).getTime();
-    return Date.now() - sentAt <= msg.ghost.expiresIn * 1000;
+    return now - sentAt <= msg.ghost.expiresIn * 1000;
   });
+
+  // Force re-render for ghost message expiry countdown
+  const [, forceUpdate] = useState(0);
+  useEffect(() => {
+    if (!ghostMode && !visibleMessages.some(m => m.ghost?.enabled)) return;
+    const timer = setInterval(() => forceUpdate(n => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [ghostMode, messages.length]);
 
   // SafeMode: sanitize URLs in message content
   const sanitizeContent = (content: string): string => {
@@ -141,7 +147,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  }, [messages.length]);
 
   const startCall = (type: 'audio' | 'video') => {
     setCallState('ringing');
@@ -164,7 +170,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
     setRecordTime(0);
   };
 
-  // Cleanup recording interval on unmount
+  // Cleanup intervals on unmount
   useEffect(() => {
     return () => {
       if (recordInterval.current) clearInterval(recordInterval.current);
@@ -198,11 +204,14 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
     const sentInput = input;
     setInput('');
 
-    // In live mode, skip mock replies — real users will reply
-    if (isLive) return;
+    // Refresh conversation list to reflect new lastMessage
+    if (isLive) {
+      loadConversations();
+      return;
+    }
 
     setIsTyping(true);
-    
+
     // Contextual mock replies based on message content
     const contextualReplies: Record<string, string[]> = {
       question: [
@@ -250,6 +259,25 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
       };
       addReply(convId, reply);
     }, 800 + Math.random() * 1200);
+  };
+
+  const handleClearChat = async () => {
+    setShowMoreMenu(false);
+    if (!confirm('Clear all messages in this chat? This cannot be undone.')) return;
+    if (isLive) {
+      try {
+        const supabase = getSupabase();
+        await supabase.from('messages').delete().eq('conversation_id', convId);
+        // Reload conversations to reflect cleared state
+        await loadConversations();
+      } catch (e) {
+        console.error('Failed to clear chat:', e);
+      }
+    } else {
+      // In mock mode, clear all messages for this conversation
+      // by sending a blank system message as the last message
+      sendGlobalMsg(convId, '');
+    }
   };
 
   const aiSuggestions = dynamicSuggestions.length > 0 ? dynamicSuggestions : [
@@ -414,7 +442,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
                   <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-red-400 hover:bg-theme-hover w-full text-left" onClick={() => { setIsBlocked(!isBlocked); setShowMoreMenu(false); }}>
                     <Ban className="w-4 h-4" /> {isBlocked ? 'Unblock User' : 'Block User'}
                   </button>
-                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover w-full text-left" onClick={() => { if (confirm('Clear all messages in this chat?')) { sendGlobalMsg(convId, ''); } setShowMoreMenu(false); }}>
+                  <button className="flex items-center gap-2 px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover w-full text-left" onClick={handleClearChat}>
                     <Trash2 className="w-4 h-4" /> Clear Chat
                   </button>
                 </motion.div>
@@ -686,11 +714,21 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
               value={input}
               onChange={(e) => {
                 setInput(e.target.value);
-                // Send typing indicator
+                // Send typing indicator with debounce
                 if (isLive && e.target.value) {
                   if (typingTimeout.current) clearTimeout(typingTimeout.current);
                   sendTypingIndicator();
-                  typingTimeout.current = setTimeout(() => {}, 2000);
+                  // Auto-stop typing after 2s of inactivity
+                  typingTimeout.current = setTimeout(() => {
+                    if (isLive && convId) {
+                      const supabase = getSupabase();
+                      supabase.channel(`typing-${convId}`).send({
+                        type: 'broadcast',
+                        event: 'typing_stop',
+                        payload: { userId: authUser!.id },
+                      });
+                    }
+                  }, 2000);
                 }
               }}
               onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}

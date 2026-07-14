@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Mail, Lock, Eye, EyeOff, ArrowRight, Shield, Fingerprint,
@@ -10,55 +10,11 @@ import { useAuth } from '@/context/AuthContext';
 
 type AuthMode = 'welcome' | 'login' | 'signup' | 'verify';
 
-interface RegisteredUser {
-  email: string;
-  username: string;
-  displayName: string;
-  password: string;
-  createdAt: string;
-}
-
-// Legacy localStorage helpers (fallback when Supabase not configured)
-function getRegisteredUsers(): RegisteredUser[] {
-  try {
-    return JSON.parse(localStorage.getItem('xbee_users') || '[]');
-  } catch { return []; }
-}
-
-function saveRegisteredUsers(users: RegisteredUser[]) {
-  localStorage.setItem('xbee_users', JSON.stringify(users));
-}
-
-async function hashPassword(password: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + 'xbee_salt_2026');
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-function ensureDefaultUsers() {
-  const users = getRegisteredUsers();
-  const defaults: RegisteredUser[] = [
-    { email: 'test@xbee.com', username: 'testuser', displayName: 'Test User', password: 'test1234', createdAt: '2024-01-01' },
-    { email: 'alex@xbee.com', username: 'alexchen', displayName: 'Alex Chen', password: 'alex1234', createdAt: '2024-01-01' },
-    { email: 'demo@xbee.com', username: 'demo', displayName: 'Demo Account', password: 'demo1234', createdAt: '2024-06-01' },
-  ];
-  let changed = false;
-  for (const d of defaults) {
-    if (!users.find(u => u.email === d.email)) {
-      users.push(d);
-      changed = true;
-    }
-  }
-  if (changed) saveRegisteredUsers(users);
-  return users;
-}
-
 export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
-  const { signIn, signUp, isSupabaseConfigured } = useAuth();
+  const { signIn, signUp } = useAuth();
   const [mode, setMode] = useState<AuthMode>('welcome');
   const [showPassword, setShowPassword] = useState(false);
-  const [loginId, setLoginId] = useState(''); // email OR username
+  const [loginId, setLoginId] = useState('');
   const [password, setPassword] = useState('');
   const [email, setEmail] = useState('');
   const [username, setUsername] = useState('');
@@ -69,54 +25,31 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
   const [loading, setLoading] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false);
-  const [generatedCode, setGeneratedCode] = useState('');
-
-  useEffect(() => { if (!isSupabaseConfigured) ensureDefaultUsers(); }, [isSupabaseConfigured]);
 
   const handleLogin = async () => {
     setError('');
-    setLoading(true);
     const id = loginId.trim().toLowerCase();
     const pass = password;
 
     if (!id || !pass) {
       setError('Please enter your email/username and password');
-      setLoading(false);
       return;
     }
 
-    if (isSupabaseConfigured) {
-      // Supabase Auth
-      const { error: err } = await signIn(id, pass);
-      setLoading(false);
-      if (err) {
-        setError(err);
-        return;
-      }
-      onAuth();
-    } else {
-      // Legacy localStorage auth
-      setTimeout(async () => {
-        const users = getRegisteredUsers();
-        const user = users.find(u =>
-          u.email.toLowerCase() === id || u.username.toLowerCase() === id
-        );
-        if (!user) { setError('Account not found. Check your email or username.'); setLoading(false); return; }
-        const hashedPass = await hashPassword(pass);
-        if (user.password !== hashedPass && user.password !== pass) { setError('Incorrect password. Try again.'); setLoading(false); return; }
-        localStorage.setItem('xbee_session', JSON.stringify({ email: user.email, username: user.username, displayName: user.displayName, loggedInAt: new Date().toISOString() }));
-        if (rememberMe) localStorage.setItem('xbee_remembered', 'true');
-        else localStorage.removeItem('xbee_remembered');
-        try {
-          const existing = JSON.parse(localStorage.getItem('xbee_profile') || '{}');
-          if (!existing.displayName || existing.displayName === 'Alex Chen') {
-            localStorage.setItem('xbee_profile', JSON.stringify({ ...existing, displayName: user.displayName, username: user.username }));
-          }
-        } catch {}
-        setLoading(false);
-        onAuth();
-      }, 800);
+    setLoading(true);
+    const result = await signIn(id, pass);
+    setLoading(false);
+
+    if (result.error) {
+      setError(result.error);
+      return;
     }
+
+    // Set remember-me
+    if (rememberMe) {
+      try { localStorage.setItem('xbee_remembered', 'true'); } catch {}
+    }
+    onAuth();
   };
 
   const handleSignup = async () => {
@@ -131,73 +64,49 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
     if (!trimEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimEmail)) { setError('Please enter a valid email address'); return; }
     if (password.length < 6) { setError('Password must be at least 6 characters'); return; }
 
-    if (isSupabaseConfigured) {
-      // Supabase signup
-      setLoading(true);
-      const result = await signUp(trimEmail, password, trimUsername, trimName);
-      setLoading(false);
-      if (result.error) { setError(result.error); return; }
+    setLoading(true);
+    const result = await signUp(trimEmail, password, trimUsername, trimName);
+    setLoading(false);
 
-      if (result.needsConfirmation) {
-        // Email confirmation required
-        setNeedsEmailConfirm(true);
-        setMode('verify');
-        return;
-      }
-
-      // Auto-confirmed — proceed directly
-      setSignupSuccess(true);
-      setMode('verify');
-      setTimeout(() => onAuth(), 1500);
-    } else {
-      // Legacy signup with verification code
-      const users = getRegisteredUsers();
-      if (users.find(u => u.email.toLowerCase() === trimEmail)) { setError('An account with this email already exists'); return; }
-      if (users.find(u => u.username.toLowerCase() === trimUsername)) { setError('This username is already taken'); return; }
-      const code = String(100000 + Math.floor(Math.random() * 900000));
-      setGeneratedCode(code);
-      setMode('verify');
+    if (result.error) {
+      setError(result.error);
+      return;
     }
+
+    if (result.needsConfirmation) {
+      setNeedsEmailConfirm(true);
+      setMode('verify');
+      return;
+    }
+
+    // Success — auto-logged in
+    setSignupSuccess(true);
+    setMode('verify');
+    setTimeout(() => onAuth(), 1500);
   };
 
   const handleVerify = () => {
     setError('');
     const entered = verifyCode.join('');
-    if (entered.length < 6) { setError('Please enter the full 6-digit code'); return; }
-
-    // Accept any 6-digit code or the generated code (demo-friendly)
-    if (entered !== generatedCode && entered !== '123456') {
-      // For demo: accept any 6 digits
+    if (entered.length < 6) {
+      setError('Please enter the full 6-digit code');
+      return;
     }
 
+    // Any 6-digit code works for demo
     setLoading(true);
     setTimeout(async () => {
-      const users = getRegisteredUsers();
-      const hashedPw = await hashPassword(password);
-      users.push({
-        email: email.trim().toLowerCase(),
-        username: username.trim().toLowerCase(),
-        displayName: displayName.trim(),
-        password: hashedPw,
-        createdAt: new Date().toISOString(),
-      });
-      saveRegisteredUsers(users);
+      // Register the user via AuthContext signUp (localStorage)
+      const trimEmail = email.trim().toLowerCase();
+      const trimUsername = username.trim().toLowerCase();
+      const trimName = displayName.trim();
+      const result = await signUp(trimEmail, password, trimUsername, trimName);
 
-      // Auto-login
-      localStorage.setItem('xbee_session', JSON.stringify({
-        email: email.trim().toLowerCase(),
-        username: username.trim().toLowerCase(),
-        displayName: displayName.trim(),
-        loggedInAt: new Date().toISOString(),
-      }));
-      localStorage.setItem('xbee_remembered', 'true');
-
-      try {
-        localStorage.setItem('xbee_profile', JSON.stringify({
-          displayName: displayName.trim(),
-          username: username.trim().toLowerCase(),
-        }));
-      } catch {}
+      if (result.error) {
+        setError(result.error);
+        setLoading(false);
+        return;
+      }
 
       setLoading(false);
       setSignupSuccess(true);
@@ -218,7 +127,6 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[9998] bg-[#06060e] flex items-center justify-center overflow-hidden">
-      {/* Background */}
       <div className="absolute inset-0">
         <div className="absolute top-0 left-0 right-0 h-1/2 bg-gradient-to-b from-blue-600/[0.03] to-transparent" />
         <div className="absolute bottom-0 left-1/3 w-[500px] h-[500px] rounded-full bg-indigo-600/[0.03] blur-[120px]" />
@@ -228,7 +136,6 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
 
       <div className="relative w-full max-w-md px-6">
         <AnimatePresence mode="wait">
-          {/* ==================== WELCOME SCREEN ==================== */}
           {mode === 'welcome' && (
             <motion.div key="welcome" className="flex flex-col items-center" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.4 }}>
               <motion.div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 flex items-center justify-center shadow-2xl shadow-blue-600/20 mb-8 relative overflow-hidden" initial={{ scale: 0.8 }} animate={{ scale: 1 }} transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}>
@@ -241,7 +148,7 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
               <h1 className="text-3xl font-black text-white tracking-tight mb-1">Welcome to Xbee</h1>
               <p className="text-sm text-white/30 tracking-[0.2em] uppercase font-medium mb-2">Messenger</p>
               <p className="text-sm text-white/40 text-center mb-10 max-w-[260px] leading-relaxed">
-                Where real people have real conversations  without noise, scams, or manipulation.
+                Where real people have real conversations — without noise, scams, or manipulation.
               </p>
 
               <div className="grid grid-cols-3 gap-3 w-full mb-10">
@@ -268,12 +175,11 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
 
               <div className="mt-6 flex flex-col items-center gap-1.5">
                 <p className="text-[10px] text-white/[0.1] tracking-[0.25em] uppercase font-medium">Xbee Technologies</p>
-                <p className="text-[9px] text-white/[0.08]">Est. 1996 &bull; Trusted by millions worldwide</p>
+                <p className="text-[9px] text-white/[0.08]">Est. 1996 • Trusted by millions worldwide</p>
               </div>
             </motion.div>
           )}
 
-          {/* ==================== LOGIN SCREEN ==================== */}
           {mode === 'login' && (
             <motion.div key="login" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.35 }}>
               <button className="flex items-center gap-1.5 text-sm text-white/30 hover:text-white/50 transition-colors mb-8" onClick={() => { setMode('welcome'); setError(''); }}>
@@ -346,15 +252,12 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
               </div>
 
               <p className="text-center text-xs text-white/20 mt-6">
-                Don&apos;t have an account?{' '}
+                Don't have an account?{' '}
                 <button className="text-blue-400/70 hover:text-blue-400" onClick={() => { setMode('signup'); setError(''); }}>Create one</button>
               </p>
-
-
             </motion.div>
           )}
 
-          {/* ==================== SIGNUP SCREEN ==================== */}
           {mode === 'signup' && (
             <motion.div key="signup" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.35 }}>
               <button className="flex items-center gap-1.5 text-sm text-white/30 hover:text-white/50 transition-colors mb-8" onClick={() => { setMode('welcome'); setError(''); }}>
@@ -385,11 +288,6 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
                   <div className="relative">
                     <AtSign className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
                     <input type="text" className="w-full py-3.5 pl-12 pr-4 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white text-sm placeholder:text-white/20 focus:border-blue-500/50 focus:outline-none focus:ring-1 focus:ring-blue-500/20 transition-colors" placeholder="alexchen" value={username} onChange={(e) => { setUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '')); setError(''); }} />
-                    {username.length >= 3 && (
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] text-emerald-400">
-                        {!isSupabaseConfigured && getRegisteredUsers().find(u => u.username === username.toLowerCase()) ? ' Taken' : ' Available'}
-                      </span>
-                    )}
                   </div>
                 </div>
 
@@ -423,17 +321,18 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
                 </div>
 
                 <motion.button
-                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold text-sm shadow-lg shadow-blue-600/20 mt-2 flex items-center justify-center gap-2"
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold text-sm shadow-lg shadow-blue-600/20 mt-2 flex items-center justify-center gap-2 disabled:opacity-60"
                   onClick={handleSignup}
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.98 }}
+                  disabled={loading}
                 >
-                  Continue <ArrowRight className="w-4 h-4" />
+                  {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <>Continue <ArrowRight className="w-4 h-4" /></>}
                 </motion.button>
               </div>
 
               <p className="text-[10px] text-white/15 text-center mt-4 leading-relaxed max-w-[280px] mx-auto">
-                By creating an account, you agree to Xbee Technologies&apos; Terms of Service and Privacy Policy.
+                By creating an account, you agree to Xbee Technologies' Terms of Service and Privacy Policy.
               </p>
 
               <p className="text-center text-xs text-white/20 mt-4">
@@ -443,7 +342,6 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
             </motion.div>
           )}
 
-          {/* ==================== VERIFY SCREEN ==================== */}
           {mode === 'verify' && (
             <motion.div key="verify" className="flex flex-col items-center" initial={{ opacity: 0, x: 30 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -30 }} transition={{ duration: 0.35 }}>
               {signupSuccess ? (
@@ -471,7 +369,7 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
                   >
                     Go to Sign In <ArrowRight className="w-4 h-4" />
                   </motion.button>
-                  <p className="text-[10px] text-white/15 mt-4">Didn&apos;t get an email? Check your spam folder.</p>
+                  <p className="text-[10px] text-white/15 mt-4">Didn't get an email? Check your spam folder.</p>
                 </motion.div>
               ) : (
                 <>
@@ -524,7 +422,7 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
                   </motion.button>
 
                   <button className="text-xs text-white/25 mt-4 hover:text-white/40 transition-colors">
-                    Didn&apos;t receive a code? Resend
+                    Didn't receive a code? Resend
                   </button>
 
                   <div className="mt-8 flex items-center gap-2 p-3 rounded-xl bg-white/[0.02] border border-white/[0.04]">

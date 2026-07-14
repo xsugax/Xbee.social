@@ -6,7 +6,7 @@ import { Search, Settings, PenSquare, Mail, X, UserPlus, Loader2 } from 'lucide-
 import ChatList from '@/components/messages/ChatList';
 import ChatWindow from '@/components/messages/ChatWindow';
 import Avatar from '@/components/ui/Avatar';
-import { cn, generateId } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import { useAuth, profileToUser } from '@/context/AuthContext';
 import { getSupabase } from '@/lib/supabase';
@@ -16,7 +16,7 @@ import { AGI_BOT_ID, agiBotUser, createAgiConversation, getAgiWelcomeMessage } f
 import { xbeeThink } from '@/components/ai/XbeeAI';
 
 export default function MessagesPage() {
-  const { conversations, currentUser, activeConvId, setActiveConvId, loadConversations, createConversation, allUsers } = useApp();
+  const { conversations, currentUser, activeConvId, setActiveConvId, loadConversations } = useApp();
   const { isSupabaseConfigured } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewMsg, setShowNewMsg] = useState(false);
@@ -72,16 +72,12 @@ export default function MessagesPage() {
   const activeConv = isAgiActive ? agiConversation : conversations.find(c => c.id === activeConvId);
   const otherUser = isAgiActive ? agiBotUser : activeConv?.participants.find(p => p.id !== currentUser.id);
 
-  // Users to show in new message modal (exclude AGI bot — it's always available via the list)
+  // Users to show in new message modal
   const existingUserIds = new Set(conversations.flatMap(c => c.participants.map(p => p.id)));
-  // In mock mode, use allUsers (includes auth-registered users) + fall back to mockUsers for the base set
-  const searchableMockUsers = mockUsers.filter(u => !allUsers.some(a => a.id === u.id));
-  const combinedUsers = [...allUsers, ...searchableMockUsers];
   const newMsgUsers = isSupabaseConfigured
-    ? (newMsgSearch.trim() ? liveUsers.filter(u => u.id !== currentUser.id && u.id !== AGI_BOT_ID) : [])
-    : combinedUsers.filter(u =>
+    ? (newMsgSearch.trim() ? liveUsers : [])
+    : mockUsers.filter(u =>
         u.id !== currentUser.id &&
-        u.id !== AGI_BOT_ID &&
         (newMsgSearch.trim() === '' || u.displayName.toLowerCase().includes(newMsgSearch.toLowerCase()) || u.username.toLowerCase().includes(newMsgSearch.toLowerCase()))
       );
 
@@ -95,20 +91,18 @@ export default function MessagesPage() {
           user2_id: userId,
         });
         if (!error && data) {
+          // Reload conversations from Supabase so the new DM appears in the list
           await loadConversations();
           setActiveConvId(data);
-        } else {
-          console.error('Failed to create DM:', error);
         }
-      } catch (e) {
-        console.error('Error creating conversation:', e);
-      }
+      } catch {}
       setStartingConvo(null);
     } else {
-      // Mock mode: use createConversation from context
-      const convId = createConversation(userId);
-      if (convId) {
-        setActiveConvId(convId);
+      const existing = conversations.find(c => c.participants.some(p => p.id === userId));
+      if (existing) {
+        setActiveConvId(existing.id);
+      } else if (conversations.length > 0) {
+        setActiveConvId(conversations[0].id);
       }
     }
     setShowNewMsg(false);

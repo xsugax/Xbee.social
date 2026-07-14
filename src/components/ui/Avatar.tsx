@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Sparkles } from 'lucide-react';
 
 interface AvatarProps {
   src?: string;
@@ -43,9 +42,11 @@ export default function Avatar({ src, name, size = 'md', verified, online, class
   const color = getColor(name);
   const [imgError, setImgError] = useState(false);
 
+  const showImg = src && src.startsWith('http') && !imgError;
+
   return (
     <div className={cn('relative shrink-0', className)}>
-      {src && !imgError ? (
+      {showImg ? (
         <img
           src={src}
           alt={`${name}'s avatar`}
@@ -70,7 +71,9 @@ export default function Avatar({ src, name, size = 'md', verified, online, class
       )}
       {verified && (
         <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-xbee-primary rounded-full flex items-center justify-center border-2 border-theme-primary">
-          <Sparkles className="w-2.5 h-2.5 text-white" />
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12" />
+          </svg>
         </div>
       )}
     </div>

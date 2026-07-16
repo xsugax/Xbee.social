@@ -1,13 +1,15 @@
 ﻿'use client';
 
-import React, { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence, useDragControls, useMotionValue, useTransform } from 'framer-motion';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   Sparkles, X, Send, PenLine, MessageCircle, Globe,
-  Shield, Lightbulb, Zap, GripVertical, Brain, Code, BookOpen,
-  Calculator, Heart, Briefcase, Palette, Music, Microscope, Scale
+  Shield, Lightbulb, Zap, Brain, Code, BookOpen,
+  Calculator, Globe as WebSearch, Crown, Network, Heart,
+  UserCheck, TrendingUp, Hash, ExternalLink
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { xbeeBrain, BrainResponse, BrainThought, userLearning } from '@/lib/xbeeBrain';
 
 const capabilities = [
   { icon: PenLine, label: 'Write a post', description: 'Create viral content' },

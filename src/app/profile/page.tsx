@@ -4,8 +4,8 @@ import React, { useState, useRef, useMemo, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Calendar, MapPin, Link as LinkIcon,
-  Shield, Flame, Award, Edit3, Copy, Check, Users, Ticket, Camera, ArrowLeft, X
+  Calendar, Shield, Flame, Award, Edit3, Copy, Check, Users, Ticket, Camera, ArrowLeft, X,
+  FileText, Star
 } from 'lucide-react';
 import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
@@ -24,13 +24,12 @@ type ProfileTab = 'posts' | 'replies' | 'media' | 'likes';
 function ProfileContent() {
   const searchParams = useSearchParams();
   const userId = searchParams.get('user');
-  const { currentUser, posts, updateProfile, followUser, unfollowUser, isFollowing: checkFollowing } = useApp();
+  const { currentUser, posts, updateProfile, getConnectionStatus, sendConnectionRequest, acceptConnectionRequest, removeConnection, connectionRequests, isVerifiedChange, addPostAsUser } = useApp();
   const { isSupabaseConfigured } = useAuth();
   const [fetchedUser, setFetchedUser] = useState<User | null>(null);
   const [profilePosts, setProfilePosts] = useState<any[]>([]);
   const [isLoadingProfile, setIsLoadingProfile] = useState(false);
 
-  // ALL hooks must be called before any conditional returns (React Rules of Hooks)
   const [activeTab, setActiveTab] = useState<ProfileTab>('posts');
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [coverImage, setCoverImage] = useState<string | null>(null);
@@ -40,40 +39,40 @@ function ProfileContent() {
   const [editUsername, setEditUsername] = useState('');
   const [editBio, setEditBio] = useState('');
   const [editError, setEditError] = useState('');
+  // Verified Changes backdate state
+  const [vcBackdateContent, setVcBackdateContent] = useState('');
+  const [vcBackdateDate, setVcBackdateDate] = useState('');
+  const handleVcBackdate = async () => {
+    if (!vcBackdateContent.trim() || !vcBackdateDate) return;
+    const timestamp = new Date(vcBackdateDate).toISOString();
+    await addPostAsUser(currentUser.id, vcBackdateContent.trim(), timestamp);
+    setVcBackdateContent('');
+    setVcBackdateDate('');
+  };
   const coverInputRef = useRef<HTMLInputElement>(null);
   const avatarInputRef = useRef<HTMLInputElement>(null);
 
-  // Fetch other user's profile from Supabase
   useEffect(() => {
     if (!userId || userId === currentUser.id || !isSupabaseConfigured) { setFetchedUser(null); setIsLoadingProfile(false); return; }
-    setIsLoadingProfile(true);
-    setFetchedUser(null);
+    setIsLoadingProfile(true); setFetchedUser(null);
     (async () => {
       try {
         const supabase = getSupabase();
         const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
         if (error) console.error('Profile fetch error:', error.message);
         if (data) setFetchedUser(profileToUser(data as any));
-      } catch (e) {
-        console.error('Profile fetch exception:', e);
-      }
+      } catch (e) { console.error('Profile fetch exception:', e); }
       setIsLoadingProfile(false);
     })();
   }, [userId, currentUser.id, isSupabaseConfigured]);
 
-  // Fetch posts for the displayed user from Supabase
   useEffect(() => {
     if (!isSupabaseConfigured) { setProfilePosts([]); return; }
     const targetId = userId && userId !== currentUser.id ? userId : currentUser.id;
     (async () => {
       try {
         const supabase = getSupabase();
-        const { data } = await supabase
-          .from('posts')
-          .select('*, profiles!posts_author_id_fkey(*)')
-          .eq('author_id', targetId)
-          .order('created_at', { ascending: false })
-          .limit(100);
+        const { data } = await supabase.from('posts').select('*, profiles!posts_author_id_fkey(*)').eq('author_id', targetId).order('created_at', { ascending: false }).limit(100);
         if (data) setProfilePosts(data);
       } catch {}
     })();
@@ -86,54 +85,50 @@ function ProfileContent() {
   }, [userId, currentUser, isSupabaseConfigured, fetchedUser]);
 
   const isOwnProfile = displayUser ? displayUser.id === currentUser.id : true;
-  const isFollowingUser = displayUser && checkFollowing ? checkFollowing(displayUser.id) : false;
-  const coverKey = `xbee_cover_${currentUser.id}`;
-  const avatarKey = `xbee_avatar_${currentUser.id}`;
+  const connStatus = displayUser ? getConnectionStatus(displayUser.id) : 'none';
+  const isConnected = connStatus === 'connected';
+  const isPendingSent = connStatus === 'pending_sent';
+  const isPendingReceived = connStatus === 'pending_received';
+  const coverKey = 'xbee_cover_' + currentUser.id;
+  const avatarKey = 'xbee_avatar_' + currentUser.id;
 
-  // Initialise cover/avatar from localStorage once displayUser is available
+  // Find the request ID for this user if pending_received
+  const pendingRequestId = useMemo(() => {
+    if (!displayUser || !isPendingReceived) return null;
+    const req = connectionRequests.find(r =>
+      r.to.id === currentUser.id && r.from.id === displayUser.id && r.status === 'pending'
+    );
+    return req ? req.id : null;
+  }, [displayUser, isPendingReceived, connectionRequests, currentUser.id]);
+
   useEffect(() => {
     if (!displayUser) return;
     if (isOwnProfile) {
       try { setCoverImage(localStorage.getItem(coverKey)); } catch { setCoverImage(null); }
       try { setAvatarImage(localStorage.getItem(avatarKey) || displayUser.avatar || null); } catch { setAvatarImage(displayUser.avatar || null); }
     } else {
-      // For other profiles: use THEIR data, never localStorage
       setCoverImage(null);
       setAvatarImage(displayUser.avatar || null);
     }
   }, [displayUser, isOwnProfile, coverKey, avatarKey]);
 
-  // For other users, show their cover image from DB
   const effectiveCoverImage = isOwnProfile ? coverImage : (displayUser?.coverImage || null);
 
-  // Convert Supabase post rows to app Post objects for profile view
   const supabasePosts = useMemo(() => {
     if (!isSupabaseConfigured || profilePosts.length === 0 || !displayUser) return [];
     return profilePosts.map((row: any) => {
       const author = row.profiles ? profileToUser(row.profiles) : displayUser;
       return {
-        id: row.id,
-        author,
-        content: row.content,
-        media: row.media || [],
-        poll: row.poll || undefined,
-        likes: row.likes_count,
-        reposts: row.reposts_count,
-        replies: row.replies_count,
-        views: row.views_count,
-        liked: false,
-        reposted: false,
-        bookmarked: false,
-        createdAt: row.created_at,
+        id: row.id, author, content: row.content, media: row.media || [], poll: row.poll || undefined,
+        likes: row.likes_count, reposts: row.reposts_count, replies: row.replies_count, views: row.views_count,
+        liked: false, reposted: false, bookmarked: false, createdAt: row.created_at,
         credibility: { authorTrust: author?.trust?.score ?? 50, contentScore: 80, engagementQuality: 1.0, viralityBrake: false },
       };
     });
   }, [profilePosts, displayUser, isSupabaseConfigured]);
 
-  // Use Supabase posts if available, otherwise filter from global posts
   const userPosts = isSupabaseConfigured && supabasePosts.length > 0
-    ? supabasePosts
-    : displayUser ? posts.filter(p => p.author?.id === displayUser.id) : [];
+    ? supabasePosts : displayUser ? posts.filter(p => p.author?.id === displayUser.id) : [];
   const displayPosts = useMemo(() => {
     switch (activeTab) {
       case 'replies': return userPosts.filter((p: any) => p.replyTo || (p.content?.startsWith('@') && p.content.length > 1) || p.replies > 0);
@@ -180,35 +175,20 @@ function ProfileContent() {
     e.target.value = '';
   };
 
-  // Show loading spinner only while actively fetching
   if (isLoadingProfile) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-2 border-xbee-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
+    return <div className="flex items-center justify-center py-20"><div className="w-8 h-8 border-2 border-xbee-primary border-t-transparent rounded-full animate-spin" /></div>;
   }
 
-  // If user not found (fetch completed but no data)
   if (!displayUser) {
-    return (
-      <div className="py-16 text-center">
-        <h2 className="text-lg font-bold text-theme-primary mb-1">User not found</h2>
-        <p className="text-sm text-theme-tertiary">This account may not exist.</p>
-      </div>
-    );
+    return <div className="py-16 text-center"><h2 className="text-lg font-bold text-theme-primary mb-1">User not found</h2><p className="text-sm text-theme-tertiary">This account may not exist.</p></div>;
   }
 
   return (
     <div>
-      {/* Back button for other profiles */}
       {!isOwnProfile && (
         <div className="sticky top-0 z-30 glass flex items-center gap-4 px-4 py-2.5 border-b border-theme">
           <Link href="/">
-            <motion.button
-              className="p-1.5 rounded-full hover:bg-theme-hover transition-colors"
-              whileTap={{ scale: 0.9 }}
-            >
+            <motion.button className="p-1.5 rounded-full hover:bg-theme-hover transition-colors" whileTap={{ scale: 0.9 }}>
               <ArrowLeft className="w-5 h-5 text-theme-primary" />
             </motion.button>
           </Link>
@@ -220,62 +200,56 @@ function ProfileContent() {
       )}
 
       {/* Banner */}
-      <div
-        className={cn(
-          'relative h-48 bg-gradient-to-r from-xbee-primary via-xbee-secondary to-xbee-accent group',
-          isOwnProfile && 'cursor-pointer'
-        )}
-        onClick={() => isOwnProfile && coverInputRef.current?.click()}
-      >
-        {effectiveCoverImage && (
-          <img src={effectiveCoverImage} alt={`${displayUser.displayName}'s cover photo`} className="absolute inset-0 w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
-        )}
+      <div className={cn('relative h-48 bg-gradient-to-r from-xbee-primary via-xbee-secondary to-xbee-accent group', isOwnProfile && 'cursor-pointer')}
+        onClick={() => isOwnProfile && coverInputRef.current?.click()}>
+        {effectiveCoverImage && <img src={effectiveCoverImage} alt="" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
         <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors" />
         {isOwnProfile && (
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-            <div className="p-3 rounded-full bg-black/60 text-white">
-              <Camera className="w-6 h-6" />
+          <>
+            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="p-3 rounded-full bg-black/60 text-white"><Camera className="w-6 h-6" /></div>
             </div>
-          </div>
-        )}
-        {isOwnProfile && (
-          <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={handleCoverUpload} />
+            <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={handleCoverUpload} />
+          </>
         )}
       </div>
 
       {/* Profile Info */}
       <div className="px-4 pb-4 relative">
         <div className="flex items-end justify-between -mt-16 mb-3">
-          <div
-            className={cn('border-4 border-theme-primary rounded-full relative group', isOwnProfile && 'cursor-pointer')}
-            onClick={() => isOwnProfile && avatarInputRef.current?.click()}
-          >
+          <div className={cn('border-4 border-theme-primary rounded-full relative group', isOwnProfile && 'cursor-pointer')}
+            onClick={() => isOwnProfile && avatarInputRef.current?.click()}>
             <Avatar name={displayUser.displayName} src={avatarImage || displayUser.avatar || undefined} size="xl" />
             {isOwnProfile && (
-              <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                <Camera className="w-5 h-5 text-white" />
-              </div>
-            )}
-            {isOwnProfile && (
-              <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+              <>
+                <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Camera className="w-5 h-5 text-white" />
+                </div>
+                <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+              </>
             )}
           </div>
           {isOwnProfile ? (
-            <motion.button className="xbee-button-secondary text-sm mt-16" whileTap={{ scale: 0.95 }} onClick={() => { setEditName(currentUser.displayName || ''); setEditUsername(currentUser.username || ''); setEditBio(currentUser.bio || ''); setShowEditModal(true); }}>
+            <motion.button className="xbee-button-secondary text-sm mt-16" whileTap={{ scale: 0.95 }}
+              onClick={() => { setEditName(currentUser.displayName || ''); setEditUsername(currentUser.username || ''); setEditBio(currentUser.bio || ''); setShowEditModal(true); }}>
               <Edit3 className="w-4 h-4" /> Edit Profile
             </motion.button>
           ) : (
             <motion.button
-              className={cn(
-                'text-sm mt-16 px-5 py-2 rounded-full font-bold transition-colors',
-                isFollowingUser
-                  ? 'border border-theme text-theme-primary hover:border-red-500 hover:text-red-500'
-                  : 'bg-xbee-primary text-white hover:bg-xbee-primary/90'
+              className={cn('text-sm mt-16 px-5 py-2 rounded-full font-bold transition-colors',
+                isConnected ? 'border border-theme text-theme-primary hover:border-red-500 hover:text-red-500' :
+                isPendingSent ? 'border border-amber-400/50 text-amber-400' :
+                isPendingReceived ? 'border border-emerald-400/50 text-emerald-400' :
+                'bg-xbee-primary text-white hover:bg-xbee-primary/90'
               )}
-              onClick={() => isFollowingUser ? unfollowUser(displayUser.id) : followUser(displayUser.id)}
+              onClick={() => {
+                if (isConnected) removeConnection(displayUser.id);
+                else if (isPendingReceived && pendingRequestId) acceptConnectionRequest(pendingRequestId);
+                else if (!isPendingSent) sendConnectionRequest(displayUser.id);
+              }}
               whileTap={{ scale: 0.95 }}
             >
-              {isFollowingUser ? 'Following' : 'Follow'}
+              {isConnected ? 'Connected' : isPendingSent ? 'Request Sent' : isPendingReceived ? 'Accept Request' : 'Connect'}
             </motion.button>
           )}
         </div>
@@ -286,7 +260,6 @@ function ProfileContent() {
             <TrustBadge score={displayUser.trust.score} tier={displayUser.trust.tier} size="md" showScore showLabel verification={displayUser.verification} />
           </div>
           <p className="text-theme-secondary">@{displayUser.username}</p>
-
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-xbee-success/10 border border-xbee-success/20">
               <Shield className="w-3.5 h-3.5 text-xbee-success" />
@@ -296,30 +269,18 @@ function ProfileContent() {
               <Flame className="w-3.5 h-3.5 text-orange-500" />
               <span className="text-xs font-medium text-orange-500">{displayUser.streak}-day streak</span>
             </div>
-            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-xbee-primary/10 border border-xbee-primary/20">
-              <Users className="w-3.5 h-3.5 text-xbee-primary" />
-              <span className="text-xs font-medium text-xbee-primary">Reach: {displayUser.trust.reachMultiplier}x</span>
-            </div>
           </div>
         </div>
 
         <p className="text-theme-primary text-[15px] mt-3 leading-relaxed">{displayUser.bio}</p>
 
         <div className="flex items-center flex-wrap gap-x-4 gap-y-1 mt-3 text-sm text-theme-tertiary">
-          <span className="flex items-center gap-1">
-            <Calendar className="w-4 h-4" /> Joined {new Date(displayUser.joinedAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-          </span>
+          <span className="flex items-center gap-1"><Calendar className="w-4 h-4" /> Joined {new Date(displayUser.joinedAt).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</span>
         </div>
 
         <div className="flex items-center gap-5 mt-3">
-          <span className="text-sm">
-            <span className="font-bold text-theme-primary">{formatNumber(displayUser.following)}</span>
-            {' '}<span className="text-theme-tertiary">Following</span>
-          </span>
-          <span className="text-sm">
-            <span className="font-bold text-theme-primary">{formatNumber(displayUser.followers)}</span>
-            {' '}<span className="text-theme-tertiary">Followers</span>
-          </span>
+          <span className="text-sm"><span className="font-bold text-theme-primary">{formatNumber(displayUser.following)}</span> <span className="text-theme-tertiary">Following</span></span>
+          <span className="text-sm"><span className="font-bold text-theme-primary">{formatNumber(displayUser.followers)}</span> <span className="text-theme-tertiary">Followers</span></span>
         </div>
 
         {displayUser.badges.length > 0 && (
@@ -335,29 +296,89 @@ function ProfileContent() {
         )}
       </div>
 
-      <div className="px-4 pb-4">
-        <TrustScoreCard trust={displayUser.trust} />
-      </div>
+      <div className="px-4 pb-4"><TrustScoreCard trust={displayUser.trust} /></div>
+
+      {isOwnProfile && currentUser.id && isVerifiedChange(currentUser.id) && (
+        <div className="px-4 pb-4">
+          <motion.div className="glass-card p-4 border-yellow-500/30 border" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+            <div className="flex items-center gap-2 mb-3">
+              <Star className="w-5 h-5 text-yellow-400" />
+              <span className="text-sm font-bold text-yellow-400">Verified Changes Active</span>
+            </div>
+            <p className="text-[10px] text-theme-tertiary mb-3">You have been granted special permissions to edit your profile analytics, backdate posts, and choose your verification badge.</p>
+
+            {/* Edit Followers/Following */}
+            <div className="mb-4 p-3 rounded-xl bg-theme-hover border border-theme">
+              <label className="text-xs font-bold text-theme-secondary mb-2 block">Adjust Followers & Following</label>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <span className="text-[9px] text-theme-tertiary">Followers</span>
+                  <input type="number" className="xbee-input text-xs mt-1" defaultValue={currentUser.followers}
+                    onBlur={(e) => { const val = Math.max(0, parseInt(e.target.value) || 0); updateProfile({ followers: val }); }}
+                  />
+                </div>
+                <div className="flex-1">
+                  <span className="text-[9px] text-theme-tertiary">Following</span>
+                  <input type="number" className="xbee-input text-xs mt-1" defaultValue={currentUser.following}
+                    onBlur={(e) => { const val = Math.max(0, parseInt(e.target.value) || 0); updateProfile({ following: val }); }}
+                  />
+                </div>
+              </div>
+              <p className="text-[9px] text-theme-tertiary mt-1">Changes apply immediately to your profile.</p>
+            </div>
+
+            {/* Choose Verification Badge */}
+            <div className="mb-4 p-3 rounded-xl bg-theme-hover border border-theme">
+              <label className="text-xs font-bold text-theme-secondary mb-2 block">Choose Verification Badge</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+                {[
+                  { value: 'none', label: 'None', color: 'text-gray-400' },
+                  { value: 'identity', label: 'Blue', color: 'text-blue-400' },
+                  { value: 'authority', label: 'Gold', color: 'text-amber-400' },
+                  { value: 'government', label: 'Red', color: 'text-red-400' },
+                  { value: 'business', label: 'Green', color: 'text-emerald-400' },
+                  { value: 'celebrity', label: 'Purple', color: 'text-purple-400' },
+                  { value: 'creator', label: 'Pink', color: 'text-pink-400' },
+                ].map((v) => (
+                  <motion.button
+                    key={v.value}
+                    className={cn('py-2 rounded-lg text-[10px] font-bold border transition-all', currentUser.verification === v.value ? `${v.color} border-current bg-current/10` : 'border-theme text-theme-tertiary hover:border-theme-secondary')}
+                    onClick={() => updateProfile({ verification: v.value as any, verified: v.value !== 'none' })}
+                    whileTap={{ scale: 0.95 }}
+                  >
+                    {v.label}
+                  </motion.button>
+                ))}
+              </div>
+            </div>
+
+            {/* Backdate a Post */}
+            <div className="p-3 rounded-xl bg-theme-hover border border-theme">
+              <label className="text-xs font-bold text-theme-secondary mb-2 block">Backdate a Post</label>
+              <p className="text-[9px] text-theme-tertiary mb-2">Create a post with a custom timestamp from the past.</p>
+              <textarea className="xbee-input text-xs min-h-[60px] resize-none mb-2" placeholder="Post content..." maxLength={500} value={vcBackdateContent} onChange={(e) => setVcBackdateContent(e.target.value)} />
+              <input type="datetime-local" className="xbee-input text-xs mb-2" value={vcBackdateDate} onChange={(e) => setVcBackdateDate(e.target.value)} />
+              <motion.button className="xbee-button-primary text-[10px] w-full py-1.5" onClick={handleVcBackdate} disabled={!vcBackdateContent.trim() || !vcBackdateDate} whileTap={{ scale: 0.95 }}>
+                <FileText className="w-3 h-3 inline mr-1" /> Publish Backdated Post
+              </motion.button>
+            </div>
+          </motion.div>
+        </div>
+      )}
 
       {isOwnProfile && (
         <div className="px-4 pb-4">
           <motion.div className="glass-card p-4" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
             <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <Ticket className="w-5 h-5 text-xbee-primary" />
-                <span className="text-sm font-bold text-theme-primary">Invite Codes</span>
-              </div>
+              <div className="flex items-center gap-2"><Ticket className="w-5 h-5 text-xbee-primary" /><span className="text-sm font-bold text-theme-primary">Invite Codes</span></div>
               <span className="text-xs text-theme-tertiary">{currentUser.invitesRemaining} remaining</span>
             </div>
             <div className="space-y-2">
-              {activeInvites.map((inv) => (
+              {activeInvites.map(inv => (
                 <div key={inv.code} className="flex items-center justify-between p-2 rounded-lg bg-theme-tertiary">
                   <code className="text-xs font-mono text-xbee-primary">{inv.code}</code>
-                  <motion.button
-                    className={cn('p-1.5 rounded-lg transition-colors', copiedCode === inv.code ? 'bg-emerald-500/20 text-emerald-400' : 'hover:bg-theme-hover text-theme-secondary')}
-                    onClick={() => copyCode(inv.code)}
-                    whileTap={{ scale: 0.9 }}
-                  >
+                  <motion.button className={cn('p-1.5 rounded-lg transition-colors', copiedCode === inv.code ? 'bg-emerald-500/20 text-emerald-400' : 'hover:bg-theme-hover text-theme-secondary')}
+                    onClick={() => copyCode(inv.code)} whileTap={{ scale: 0.9 }}>
                     {copiedCode === inv.code ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                   </motion.button>
                 </div>
@@ -366,14 +387,12 @@ function ProfileContent() {
             {usedInvites.length > 0 && (
               <div className="mt-3 pt-3 border-t border-theme">
                 <span className="text-[11px] text-theme-tertiary uppercase tracking-wider">Used</span>
-                <div className="space-y-1 mt-1.5">
-                  {usedInvites.map((inv) => (
-                    <div key={inv.code} className="flex items-center justify-between text-xs text-theme-tertiary">
-                      <code className="font-mono opacity-50">{inv.code}</code>
-                      <span>Used {inv.usedAt}</span>
-                    </div>
-                  ))}
-                </div>
+                {usedInvites.map(inv => (
+                  <div key={inv.code} className="flex items-center justify-between text-xs text-theme-tertiary mt-1.5">
+                    <code className="font-mono opacity-50">{inv.code}</code>
+                    <span>Used {inv.usedAt}</span>
+                  </div>
+                ))}
               </div>
             )}
           </motion.div>
@@ -382,106 +401,56 @@ function ProfileContent() {
 
       {/* Tabs */}
       <div className="flex border-b border-theme">
-        {(['posts', 'replies', 'media', 'likes'] as ProfileTab[]).map((tab) => (
-          <button
-            key={tab}
-            className="flex-1 py-3 relative transition-colors hover:bg-theme-hover"
-            onClick={() => setActiveTab(tab)}
-          >
-            <span className={`text-sm font-medium capitalize ${activeTab === tab ? 'text-theme-primary font-bold' : 'text-theme-tertiary'}`}>
-              {tab}
-            </span>
-            {activeTab === tab && (
-              <motion.div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-xbee-primary rounded-full" layoutId="profileTab" />
-            )}
+        {(['posts', 'replies', 'media', 'likes'] as ProfileTab[]).map(tab => (
+          <button key={tab} className="flex-1 py-3 relative transition-colors hover:bg-theme-hover" onClick={() => setActiveTab(tab)}>
+            <span className={'text-sm font-medium capitalize ' + (activeTab === tab ? 'text-theme-primary font-bold' : 'text-theme-tertiary')}>{tab}</span>
+            {activeTab === tab && <motion.div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-xbee-primary rounded-full" layoutId="profileTab" />}
           </button>
         ))}
       </div>
 
       <div>
-        {displayPosts.map((post, index) => (
-          <PostCard key={post.id} post={post} index={index} />
-        ))}
-        {displayPosts.length === 0 && (
-          <div className="py-12 text-center">
-            <p className="text-theme-tertiary">No posts yet</p>
-          </div>
-        )}
+        {displayPosts.map((post: any, index: number) => <PostCard key={post.id} post={post} index={index} />)}
+        {displayPosts.length === 0 && <div className="py-12 text-center"><p className="text-theme-tertiary">No posts yet</p></div>}
       </div>
 
       {/* Edit Profile Modal */}
       <AnimatePresence>
         {showEditModal && (
-          <motion.div
-            className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setShowEditModal(false)}
-          >
-            <motion.div
-              className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto"
-              initial={{ scale: 0.9, y: 30, opacity: 0 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.9, y: 30, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-            >
+          <motion.div className="fixed inset-0 z-[9999] bg-black/60 flex items-center justify-center p-4" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowEditModal(false)}>
+            <motion.div className="glass-card w-full max-w-lg max-h-[90vh] overflow-y-auto" initial={{ scale: 0.9, y: 30, opacity: 0 }} animate={{ scale: 1, y: 0, opacity: 1 }} exit={{ scale: 0.9, y: 30, opacity: 0 }} onClick={(e: React.MouseEvent) => e.stopPropagation()}>
               <div className="flex items-center justify-between p-4 border-b border-theme">
                 <h2 className="text-lg font-bold text-theme-primary">Edit Profile</h2>
-                <div className="flex items-center gap-2">
-                  <motion.button
-                    className="p-2 rounded-full hover:bg-theme-hover text-theme-tertiary"
-                    onClick={() => setShowEditModal(false)}
-                    whileTap={{ scale: 0.9 }}
-                  >
-                    <X className="w-5 h-5" />
-                  </motion.button>
-                </div>
+                <motion.button className="p-2 rounded-full hover:bg-theme-hover text-theme-tertiary" onClick={() => setShowEditModal(false)} whileTap={{ scale: 0.9 }}>
+                  <X className="w-5 h-5" />
+                </motion.button>
               </div>
               <div className="p-4 space-y-4">
                 <div>
                   <label className="text-xs font-bold text-theme-tertiary uppercase tracking-wider">Display Name</label>
-                  <input
-                    type="text"
-                    value={editName}
-                    onChange={(e) => setEditName(e.target.value)}
+                  <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)}
                     className="w-full mt-1.5 px-4 py-2.5 rounded-xl bg-theme-hover border border-theme text-theme-primary text-sm outline-none focus:border-xbee-primary transition-colors"
-                    maxLength={50}
-                    placeholder="Your display name"
-                  />
+                    maxLength={50} placeholder="Your display name" />
                   <span className="text-[10px] text-theme-tertiary mt-1">{editName.length}/50</span>
                 </div>
                 <div>
                   <label className="text-xs font-bold text-theme-tertiary uppercase tracking-wider">Username</label>
                   <div className="relative mt-1.5">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-theme-tertiary text-sm">@</span>
-                    <input
-                      type="text"
-                      value={editUsername}
-                      onChange={(e) => setEditUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
+                    <input type="text" value={editUsername} onChange={(e) => setEditUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, '').toLowerCase())}
                       className="w-full pl-8 pr-4 py-2.5 rounded-xl bg-theme-hover border border-theme text-theme-primary text-sm outline-none focus:border-xbee-primary transition-colors"
-                      maxLength={30}
-                      placeholder="username"
-                    />
+                      maxLength={30} placeholder="username" />
                   </div>
                 </div>
                 <div>
                   <label className="text-xs font-bold text-theme-tertiary uppercase tracking-wider">Bio</label>
-                  <textarea
-                    value={editBio}
-                    onChange={(e) => setEditBio(e.target.value)}
+                  <textarea value={editBio} onChange={(e) => setEditBio(e.target.value)}
                     className="w-full mt-1.5 px-4 py-2.5 rounded-xl bg-theme-hover border border-theme text-theme-primary text-sm outline-none focus:border-xbee-primary transition-colors resize-none"
-                    rows={3}
-                    maxLength={160}
-                    placeholder="Tell the world about yourself"
-                  />
+                    rows={3} maxLength={160} placeholder="Tell the world about yourself" />
                   <span className="text-[10px] text-theme-tertiary mt-1">{editBio.length}/160</span>
                 </div>
-                {editError && (
-                  <p className="text-xs text-red-400 text-center">{editError}</p>
-                )}
-                <motion.button
-                  className="w-full py-2.5 rounded-full bg-xbee-primary text-white font-bold text-sm hover:bg-xbee-primary/90 transition-colors"
+                {editError && <p className="text-xs text-red-400 text-center">{editError}</p>}
+                <motion.button className="w-full py-2.5 rounded-full bg-xbee-primary text-white font-bold text-sm hover:bg-xbee-primary/90 transition-colors"
                   whileTap={{ scale: 0.97 }}
                   onClick={() => {
                     setEditError('');
@@ -490,13 +459,9 @@ function ProfileContent() {
                       username: editUsername.trim() || currentUser.username,
                       bio: editBio.trim(),
                     });
-                    if (success) {
-                      setShowEditModal(false);
-                    } else {
-                      setEditError('Username is already taken. Please choose another.');
-                    }
-                  }}
-                >
+                    if (success) setShowEditModal(false);
+                    else setEditError('Username is already taken. Please choose another.');
+                  }}>
                   Save Changes
                 </motion.button>
               </div>

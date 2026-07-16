@@ -78,7 +78,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           setState('auth');
         }
       }
-    }, 3500); // 3.5s loading screen
+      }, 1500); // 1.5s loading screen
 
     return () => clearTimeout(timer);
   }, [state, profile, isSupabaseConfigured]);

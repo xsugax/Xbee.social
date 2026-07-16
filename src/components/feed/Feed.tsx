@@ -2,15 +2,16 @@
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Shield, Zap, Info, ArrowUp, Loader2, Sparkles } from 'lucide-react';
+import { Shield, Zap, Info, ArrowUp, Loader2, Sparkles, Users, UserPlus } from 'lucide-react';
 import PostComposer from './PostComposer';
 import PostCard from './PostCard';
-import { mockUsers } from '@/lib/mockData';
 import { Post, FeedMode } from '@/types';
 import { useApp } from '@/context/AppContext';
-import { generateId, cn } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { useReducedMotion } from '@/lib/useReducedMotion';
 import { useAuth } from '@/context/AuthContext';
+import Link from 'next/link';
+import Avatar from '@/components/ui/Avatar';
 
 function PostSkeleton() {
   return (
@@ -36,28 +37,15 @@ function PostSkeleton() {
   );
 }
 
-const SIMULATED_POSTS = [
-  { content: "Just discovered that CSS container queries work in all major browsers now. The responsive design game just changed forever!", authorIdx: 0 },
-  { content: "Shipped our first production Rust microservice today. Memory usage: 12MB. The Go equivalent was 180MB. I'm sold.", authorIdx: 2 },
-  { content: "Hot take: The best meetings are the ones that get cancelled.\n\nProtect your team's deep work time. That's where the magic happens.", authorIdx: 4 },
-  { content: "We just hit 1M daily active users on our platform.\n\nThe secret? We replied to every single customer support ticket personally for the first 2 years.", authorIdx: 5 },
-  { content: "PSA: If your app has a loading spinner that shows for 50ms, please just remove it. That flash is worse than waiting.", authorIdx: 8 },
-  { content: "Debugging tip that saves me hours:\n\nInstead of console.log(data), use console.table(data).\n\nWorks with arrays and objects.", authorIdx: 6 },
-  { content: "Rebuilt our entire auth system this weekend using passkeys. Zero passwords, zero phishing risk, 2-second login.", authorIdx: 7 },
-  { content: "The hardest part of building a startup isn't the code.\n\nIt's staring at an empty analytics dashboard for 6 months and still believing.", authorIdx: 5 },
-];
-
 const POSTS_PER_PAGE = 10;
 
 export default function Feed() {
-  const { posts, addPost, loadMorePosts, hasMorePosts, isLoadingMorePosts } = useApp();
+  const { posts, addPost, loadMorePosts, hasMorePosts, isLoadingMorePosts, allUsers, currentUser, getConnectionStatus, sendConnectionRequest, connections, pendingSent } = useApp();
   const { isSupabaseConfigured } = useAuth();
   const reduceMotion = useReducedMotion();
   const [feedMode, setFeedMode] = useState<FeedMode>('trusted');
-  const [pendingPosts, setPendingPosts] = useState<Post[]>([]);
   const [visibleCount, setVisibleCount] = useState(POSTS_PER_PAGE);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const simIndexRef = useRef(0);
   const feedTopRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -67,32 +55,6 @@ export default function Feed() {
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
-    if (isSupabaseConfigured) return; // No fake posts in live mode
-    const interval = setInterval(() => {
-      if (simIndexRef.current >= SIMULATED_POSTS.length) simIndexRef.current = 0;
-      const sim = SIMULATED_POSTS[simIndexRef.current];
-      const author = mockUsers[sim.authorIdx] || mockUsers[0];
-      const incoming: Post = {
-        id: generateId(), author, content: sim.content,
-        likes: Math.floor(Math.random() * 500) + 10, reposts: Math.floor(Math.random() * 100),
-        replies: Math.floor(Math.random() * 50), views: Math.floor(Math.random() * 10000) + 500,
-        liked: false, reposted: false, bookmarked: false, createdAt: new Date().toISOString(),
-        credibility: { authorTrust: author.trust.score, contentScore: 70 + Math.floor(Math.random() * 25), engagementQuality: 0.6 + Math.random() * 0.35, viralityBrake: author.trust.score < 50 },
-      };
-      setPendingPosts(prev => [incoming, ...prev]);
-      simIndexRef.current++;
-    }, 15000);
-    return () => clearInterval(interval);
-  }, [isSupabaseConfigured]);
-
-  const showPending = useCallback(() => {
-    pendingPosts.forEach(p => addPost(p.content, p.media));
-    setPendingPosts([]);
-    feedTopRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [pendingPosts, addPost]);
-
-  // Infinite scroll observer — moved after sortedPosts definition
   const sortedPosts = useMemo(() => {
     if (feedMode === 'trusted') {
       return [...posts].sort((a, b) => {
@@ -104,6 +66,7 @@ export default function Feed() {
     return [...posts].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [posts, feedMode]);
 
+  // Infinite scroll
   useEffect(() => {
     const observer = new IntersectionObserver(
       ([entry]) => {
@@ -125,14 +88,22 @@ export default function Feed() {
     return () => observer.disconnect();
   }, [visibleCount, sortedPosts.length, isSupabaseConfigured, hasMorePosts, isLoadingMorePosts, loadMorePosts]);
 
-  const handlePost = (content: string, media?: import('@/types').MediaAttachment[]) => { addPost(content, media); };
-
-  // Auto-expand visible count when server loads more posts
   useEffect(() => {
     if (isSupabaseConfigured && sortedPosts.length > 0 && visibleCount < sortedPosts.length) {
       setVisibleCount(sortedPosts.length);
     }
   }, [sortedPosts.length, isSupabaseConfigured]);
+
+  // People to discover — users not yet connected
+  const discoverPeople = useMemo(() => {
+    return allUsers
+      .filter(u => u.id !== currentUser.id && !connections.has(u.id) && !pendingSent.has(u.id))
+      .slice(0, 3);
+  }, [allUsers, currentUser.id, connections, pendingSent]);
+
+  const handlePost = (content: string, media?: import('@/types').MediaAttachment[]) => { addPost(content, media); };
+
+  const emptyFeed = sortedPosts.length === 0 && !initialLoading;
 
   return (
     <div>
@@ -157,55 +128,81 @@ export default function Feed() {
           </motion.div>
         </AnimatePresence>
       </div>
-      <div
-        className={cn(
-          'w-full py-2.5 bg-xbee-primary/10 hover:bg-xbee-primary/20 text-xbee-primary text-sm font-medium flex items-center justify-center gap-2 border-b border-theme cursor-pointer transition-all duration-300',
-          pendingPosts.length > 0 ? 'opacity-100 max-h-12' : 'opacity-0 max-h-0 overflow-hidden pointer-events-none'
-        )}
-        onClick={showPending}
-        role="button"
-        tabIndex={pendingPosts.length > 0 ? 0 : -1}
-      >
-        <ArrowUp className="w-4 h-4" />Show {pendingPosts.length} new post{pendingPosts.length > 1 ? 's' : ''}
-      </div>
+
       <div ref={feedTopRef}><PostComposer onPost={handlePost} /></div>
+
       {initialLoading ? (
         <div>{Array.from({ length: 5 }).map((_, i) => <PostSkeleton key={i} />)}</div>
-      ) : sortedPosts.length === 0 ? (
+      ) : emptyFeed ? (
         <div className="py-16 text-center px-6">
           <div className="w-14 h-14 mx-auto mb-3 rounded-2xl bg-theme-hover flex items-center justify-center">
             <Sparkles className="w-7 h-7 text-theme-tertiary opacity-40" />
           </div>
           <h2 className="text-base font-bold text-theme-primary mb-1">Your feed is empty</h2>
-          <p className="text-sm text-theme-tertiary max-w-[260px] mx-auto">Follow people to see their posts here, or share something yourself!</p>
+          <p className="text-sm text-theme-tertiary max-w-[260px] mx-auto mb-6">Follow people to see their posts here, or share something yourself!</p>
+          
+          {/* Discover People section when feed is empty */}
+          {discoverPeople.length > 0 && (
+            <div className="max-w-sm mx-auto">
+              <div className="flex items-center gap-2 justify-center mb-4">
+                <Users className="w-4 h-4 text-xbee-primary" />
+                <span className="text-sm font-bold text-theme-primary">People to discover</span>
+              </div>
+              <div className="space-y-2">
+                {discoverPeople.map(user => (
+                  <div key={user.id} className="flex items-center gap-3 p-3 rounded-xl bg-theme-hover/60">
+                    <Link href={`/profile?user=${user.id}`}>
+                      <Avatar name={user.displayName} src={user.avatar} size="sm" />
+                    </Link>
+                    <div className="flex-1 min-w-0 text-left">
+                      <Link href={`/profile?user=${user.id}`} className="font-bold text-sm text-theme-primary hover:underline truncate block">
+                        {user.displayName}
+                      </Link>
+                      <p className="text-xs text-theme-tertiary truncate">{user.bio?.substring(0, 60) || `@${user.username}`}</p>
+                    </div>
+                    <motion.button
+                      className="shrink-0 px-3 py-1.5 rounded-full bg-xbee-primary text-white text-xs font-bold hover:bg-xbee-primary/90 transition-colors"
+                      onClick={() => sendConnectionRequest(user.id)}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <UserPlus className="w-3.5 h-3.5" />
+                    </motion.button>
+                  </div>
+                ))}
+              </div>
+              <Link href="/explore" className="block mt-3 text-sm text-xbee-primary hover:underline">
+                Browse all users →
+              </Link>
+            </div>
+          )}
         </div>
       ) : (
-      <div>
-        <AnimatePresence initial={false}>
-          {sortedPosts.slice(0, visibleCount).map((post, index) => (
-            <motion.div key={post.id} initial={reduceMotion ? false : { opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.35, ease: 'easeOut' }}>
-              <PostCard post={post} index={index} feedMode={feedMode} />
-            </motion.div>
-          ))}
-        </AnimatePresence>
-        {visibleCount < sortedPosts.length || (isSupabaseConfigured && hasMorePosts) ? (
-          <div ref={loadMoreRef} className="py-8 flex justify-center">
-            {isLoadingMore || isLoadingMorePosts ? (
-              <div className="flex items-center gap-2 text-xbee-primary">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span className="text-sm font-medium">Loading more posts...</span>
-              </div>
-            ) : (
-              <span className="text-sm text-theme-tertiary">Scroll for more</span>
-            )}
-          </div>
-        ) : (
-          <div className="py-8 text-center">
-            <p className="text-sm text-theme-tertiary">✨ You&apos;re all caught up!</p>
-            <p className="text-xs text-theme-tertiary mt-1">Check back later for new posts</p>
-          </div>
-        )}
-      </div>
+        <div>
+          <AnimatePresence initial={false}>
+            {sortedPosts.slice(0, visibleCount).map((post, index) => (
+              <motion.div key={post.id} initial={reduceMotion ? false : { opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: reduceMotion ? 0 : 0.35, ease: 'easeOut' }}>
+                <PostCard post={post} index={index} feedMode={feedMode} />
+              </motion.div>
+            ))}
+          </AnimatePresence>
+          {visibleCount < sortedPosts.length || (isSupabaseConfigured && hasMorePosts) ? (
+            <div ref={loadMoreRef} className="py-8 flex justify-center">
+              {isLoadingMore || isLoadingMorePosts ? (
+                <div className="flex items-center gap-2 text-xbee-primary">
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  <span className="text-sm font-medium">Loading more posts...</span>
+                </div>
+              ) : (
+                <span className="text-sm text-theme-tertiary">Scroll for more</span>
+              )}
+            </div>
+          ) : (
+            <div className="py-8 text-center">
+              <p className="text-sm text-theme-tertiary">✨ You're all caught up!</p>
+              <p className="text-xs text-theme-tertiary mt-1">Check back later for new posts</p>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );

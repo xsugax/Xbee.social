@@ -11,6 +11,7 @@ import {
 import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
 import TrustBadge from '@/components/trust/TrustBadge';
+import UserActionPopover from '@/components/feed/UserActionPopover';
 import { Post, FeedMode, Comment } from '@/types';
 import { formatNumber, formatTimeAgo, cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
@@ -131,7 +132,7 @@ function CommentItem({ comment, onLike, onReply, depth = 0 }: { comment: Comment
 }
 
 export default function PostCard({ post, index = 0, feedMode = 'trusted' }: PostCardProps) {
-  const { currentUser, likePost, repostPost, bookmarkPost, followUser, unfollowUser, isFollowing: checkFollowing, voteOnPoll, viewPost } = useApp();
+  const { currentUser, likePost, repostPost, bookmarkPost, getConnectionStatus, sendConnectionRequest, removeConnection, connections, pendingSent, voteOnPoll, viewPost } = useApp();
   const [liked, setLiked] = useState(post.liked);
   const [likeCount, setLikeCount] = useState(post.likes);
   const [reposted, setReposted] = useState(post.reposted);
@@ -160,7 +161,9 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
   const author = post.author || currentUser;
   const authorTrust = author?.trust || { score: 50, tier: 'new' as const };
   const isOwnPost = author.id === currentUser.id;
-  const isFollowingAuthor = checkFollowing ? checkFollowing(author.id) : false;
+  const connStatus = getConnectionStatus ? getConnectionStatus(author.id) : 'none';
+  const isConnected = connStatus === 'connected';
+  const isPending = connStatus === 'pending_sent' || connStatus === 'pending_received';
   const hasVoted = post.poll?.voted;
   const credibility = post.credibility || { authorTrust: 50, contentScore: 50, engagementQuality: 0.5, viralityBrake: false };
 
@@ -265,24 +268,34 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
         )}
 
         <div className="flex gap-3">
-          <Link href={`/profile?user=${author.id}`} onClick={(e) => e.stopPropagation()}>
-            <Avatar name={author.displayName} src={author.avatar} verified={author.verified} size="md" />
-          </Link>
+          <UserActionPopover user={author}>
+            <Link href={`/profile?user=${author.id}`} onClick={(e) => e.stopPropagation()}>
+              <Avatar name={author.displayName} src={author.avatar} verified={author.verified} size="md" />
+            </Link>
+          </UserActionPopover>
           <div className="flex-1 min-w-0">
             {/* Header */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                <Link href={`/profile?user=${author.id}`} onClick={(e) => e.stopPropagation()} className="font-bold text-[15px] text-theme-primary truncate hover:underline">
-                  {author.displayName}
-                </Link>
+                <UserActionPopover user={author}>
+                  <Link href={`/profile?user=${author.id}`} onClick={(e) => e.stopPropagation()} className="font-bold text-[15px] text-theme-primary truncate hover:underline">
+                    {author.displayName}
+                  </Link>
+                </UserActionPopover>
                 <TrustBadge score={authorTrust.score} tier={authorTrust.tier || 'new'} size="sm" verification={author.verification} />
                 <span className="text-theme-tertiary text-sm shrink-0 max-sm:hidden">@{author.username}</span>
                 <span className="text-theme-tertiary shrink-0"></span>
                 <span className="text-theme-tertiary text-sm shrink-0 hover:underline">{formatTimeAgo(post.createdAt)}</span>
-                {!isOwnPost && !isFollowingAuthor && (
-                  <motion.button className="text-xbee-primary text-xs font-bold hover:text-xbee-primary/80 ml-1" onClick={(e) => { e.stopPropagation(); e.preventDefault(); followUser?.(author.id); }} whileTap={{ scale: 0.9 }}>
-                     Follow
+                {!isOwnPost && !isConnected && !isPending && (
+                  <motion.button className="text-xbee-primary text-xs font-bold hover:text-xbee-primary/80 ml-1" onClick={(e) => { e.stopPropagation(); e.preventDefault(); sendConnectionRequest?.(author.id); }} whileTap={{ scale: 0.9 }}>
+                     + Connect
                   </motion.button>
+                )}
+                {!isOwnPost && isConnected && (
+                  <span className="text-xs text-xbee-success font-medium ml-1">Connected</span>
+                )}
+                {!isOwnPost && isPending && (
+                  <span className="text-xs text-amber-400 font-medium ml-1">Pending</span>
                 )}
               </div>
               <div className="relative" ref={menuRef}>
@@ -293,9 +306,9 @@ export default function PostCard({ post, index = 0, feedMode = 'trusted' }: Post
                   {showMenu && (
                     <motion.div className="absolute right-0 top-8 glass-card w-56 py-1 z-20" role="menu" initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95 }} onClick={(e) => e.stopPropagation()}>
                       {!isOwnPost && (
-                        <button role="menuitem" className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { isFollowingAuthor ? unfollowUser?.(author.id) : followUser?.(author.id); setShowMenu(false); }}>
-                          {isFollowingAuthor ? <UserMinus className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
-                          {isFollowingAuthor ? `Unfollow @${author.username}` : `Follow @${author.username}`}
+                        <button role="menuitem" className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { isConnected ? removeConnection?.(author.id) : sendConnectionRequest?.(author.id); setShowMenu(false); }}>
+                          {isConnected ? <UserMinus className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />}
+                          {isConnected ? `Disconnect @${author.username}` : `Connect @${author.username}`}
                         </button>
                       )}
                       <button role="menuitem" className="flex items-center gap-3 w-full px-4 py-2.5 text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { setShowStats(!showStats); setShowMenu(false); }}>

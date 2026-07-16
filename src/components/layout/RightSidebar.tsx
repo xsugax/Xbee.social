@@ -17,7 +17,7 @@ import { User } from '@/types';
 
 export default function RightSidebar() {
   const { rightSidebarCollapsed, toggleRightSidebar } = useLayout();
-  const { currentUser, posts, followUser, unfollowUser, isFollowing } = useApp();
+  const { currentUser, posts, getConnectionStatus, sendConnectionRequest, removeConnection, connections, pendingSent } = useApp();
   const { isSupabaseConfigured } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
@@ -46,7 +46,7 @@ export default function RightSidebar() {
     return () => controller.abort();
   }, [debouncedQuery, isSupabaseConfigured, currentUser.id]);
 
-  // Load suggested users from Supabase (random profiles not yet followed)
+  // Load suggested users from Supabase (profiles not yet connected)
   useEffect(() => {
     if (!isSupabaseConfigured) return;
     (async () => {
@@ -55,24 +55,24 @@ export default function RightSidebar() {
         const { data } = await supabase.from('profiles').select('*').neq('id', currentUser.id).limit(10);
         if (data) {
           const users = data.map(p => profileToUser(p as any));
-          const notFollowed = users.filter(u => !isFollowing(u.id));
-          setSuggestedUsers(notFollowed.length > 0 ? notFollowed.slice(0, 3) : users.slice(0, 3));
+          const notConnected = users.filter(u => !connections.has(u.id));
+          setSuggestedUsers(notConnected.length > 0 ? notConnected.slice(0, 3) : users.slice(0, 3));
         }
       } catch {}
     })();
-  }, [isSupabaseConfigured, currentUser.id, isFollowing]);
+  }, [isSupabaseConfigured, currentUser.id, connections]);
 
   const searchResults = debouncedQuery.trim() ? {
     users: isSupabaseConfigured ? liveSearchUsers : mockUsers.filter(u => u.displayName.toLowerCase().includes(debouncedQuery.toLowerCase()) || u.username.toLowerCase().includes(debouncedQuery.toLowerCase())),
     posts: posts.filter(p => p.content.toLowerCase().includes(debouncedQuery.toLowerCase())).slice(0, 3),
   } : null;
 
-  // Suggest users for "Who to Follow"
+  // Suggest users for "Who to connect with"
   const fallbackUsers = isSupabaseConfigured
     ? suggestedUsers
     : (() => {
-        const notFollowed = mockUsers.filter(u => u.id !== currentUser.id && !isFollowing(u.id)).slice(0, 3);
-        return notFollowed.length > 0 ? notFollowed : mockUsers.filter(u => u.id !== currentUser.id).slice(0, 3);
+        const notConnected = mockUsers.filter(u => u.id !== currentUser.id && !connections.has(u.id) && !pendingSent.has(u.id)).slice(0, 3);
+        return notConnected.length > 0 ? notConnected : mockUsers.filter(u => u.id !== currentUser.id).slice(0, 3);
       })();
 
   return (
@@ -236,15 +236,20 @@ export default function RightSidebar() {
             <motion.button
               className={cn(
                 'text-sm px-4 py-1.5 rounded-full font-bold transition-colors',
-                isFollowing(user.id)
+                connections.has(user.id)
                   ? 'border border-theme text-theme-primary hover:border-red-500 hover:text-red-500'
-                  : 'bg-xbee-primary text-white hover:bg-xbee-primary/90'
+                  : pendingSent.has(user.id)
+                    ? 'border border-amber-400/50 text-amber-400'
+                    : 'bg-xbee-primary text-white hover:bg-xbee-primary/90'
               )}
-              onClick={() => isFollowing(user.id) ? unfollowUser(user.id) : followUser(user.id)}
+              onClick={() => {
+                if (connections.has(user.id)) removeConnection(user.id);
+                else if (!pendingSent.has(user.id)) sendConnectionRequest(user.id);
+              }}
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
             >
-              {isFollowing(user.id) ? 'Following' : 'Follow'}
+              {connections.has(user.id) ? 'Connected' : pendingSent.has(user.id) ? 'Sent' : 'Connect'}
             </motion.button>
           </motion.div>
         ))}

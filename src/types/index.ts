@@ -159,6 +159,37 @@ export interface AICommentSuggestion {
   type: 'reply' | 'question' | 'debate';
 }
 
+export type ConnectionStatus = 'none' | 'pending_sent' | 'pending_received' | 'connected' | 'blocked';
+
+export interface ConnectionRequest {
+  id: string;
+  from: User;
+  to: User;
+  status: 'pending' | 'accepted' | 'declined';
+  message?: string;
+  createdAt: string;
+  respondedAt?: string;
+}
+
+export interface MessageRequest {
+  id: string;
+  from: User;
+  content: string;
+  conversationId?: string;
+  createdAt: string;
+  read: boolean;
+  responded: boolean;
+}
+
+export interface ConnectionHeat {
+  level: number; // 0-100
+  connections: number; // mutual connections count
+  requestsSent: number;
+  requestsReceived: number;
+  networkGrowth: number; // % growth this week
+  topVibes: User[]; // people who vibe most with your network
+}
+
 export interface Conversation {
   id: string;
   participants: User[];
@@ -170,6 +201,7 @@ export interface Conversation {
   safeMode: boolean;
   riskLevel: 'safe' | 'caution' | 'warning';
   scamAlerts: ScamAlert[];
+  isMessageRequest?: boolean; // true if this conversation hasn't been accepted yet
 }
 
 export interface Community {

@@ -4,11 +4,17 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Mail, Lock, Eye, EyeOff, ArrowRight, Shield, Fingerprint,
-  Smartphone, ChevronLeft, Check, User, AtSign, AlertCircle, Loader2, CheckCircle2
+  Smartphone, ChevronLeft, Check, User, AtSign, AlertCircle, Loader2, CheckCircle2, LogIn
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 type AuthMode = 'welcome' | 'login' | 'signup' | 'verify';
+
+const quickUsers = [
+  { displayName: 'Alex Chen', username: 'alexchen', email: 'alex@xbee.com', password: 'alex1234', gradient: 'from-blue-500 to-blue-600' },
+  { displayName: 'Test User', username: 'testuser', email: 'test@xbee.com', password: 'test1234', gradient: 'from-emerald-500 to-teal-600' },
+  { displayName: 'Demo Account', username: 'demo', email: 'demo@xbee.com', password: 'demo1234', gradient: 'from-purple-500 to-pink-600' },
+];
 
 export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
   const { signIn, signUp } = useAuth();
@@ -25,6 +31,20 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
   const [loading, setLoading] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false);
+  const [quickLoginLoading, setQuickLoginLoading] = useState<string | null>(null);
+
+  const handleQuickLogin = async (user: typeof quickUsers[0]) => {
+    setQuickLoginLoading(user.username);
+    setError('');
+    try { localStorage.setItem('xbee_remembered', 'true'); } catch {}
+    const result = await signIn(user.email, user.password);
+    setQuickLoginLoading(null);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    onAuth();
+  };
 
   const handleLogin = async () => {
     setError('');
@@ -134,7 +154,7 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
         <div className="absolute inset-0 opacity-[0.012]" style={{ backgroundImage: 'radial-gradient(circle, white 1px, transparent 1px)', backgroundSize: '48px 48px' }} />
       </div>
 
-      <div className="relative w-full max-w-md px-6">
+      <div className="relative w-full max-w-md px-6 max-h-screen overflow-y-auto py-8">
         <AnimatePresence mode="wait">
           {mode === 'welcome' && (
             <motion.div key="welcome" className="flex flex-col items-center" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} transition={{ duration: 0.4 }}>
@@ -147,11 +167,11 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
 
               <h1 className="text-3xl font-black text-white tracking-tight mb-1">Welcome to Xbee</h1>
               <p className="text-sm text-white/30 tracking-[0.2em] uppercase font-medium mb-2">Messenger</p>
-              <p className="text-sm text-white/40 text-center mb-10 max-w-[260px] leading-relaxed">
+              <p className="text-sm text-white/40 text-center mb-6 max-w-[260px] leading-relaxed">
                 Where real people have real conversations — without noise, scams, or manipulation.
               </p>
 
-              <div className="grid grid-cols-3 gap-3 w-full mb-10">
+              <div className="grid grid-cols-3 gap-3 w-full mb-6">
                 {[
                   { icon: Shield, label: 'Trusted', desc: 'Verified identities' },
                   { icon: Fingerprint, label: 'Private', desc: 'E2E encrypted' },
@@ -165,13 +185,47 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
                 ))}
               </div>
 
-              <motion.button className="w-full py-3.5 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 transition-shadow" onClick={() => setMode('signup')} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}>
-                Create Account <ArrowRight className="w-4 h-4" />
-              </motion.button>
+              {/* Quick login users */}
+              <div className="w-full mb-6">
+                <p className="text-xs text-white/30 font-medium mb-3 text-center">Quick access — tap to sign in</p>
+                <div className="space-y-2">
+                  {quickUsers.map((user, i) => (
+                    <motion.button
+                      key={user.username}
+                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-colors text-left disabled:opacity-60"
+                      onClick={() => handleQuickLogin(user)}
+                      disabled={quickLoginLoading !== null}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.4 + i * 0.08 }}
+                      whileTap={{ scale: 0.98 }}
+                    >
+                      <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${user.gradient} flex items-center justify-center text-white font-bold text-sm shrink-0`}>
+                        {user.displayName.charAt(0)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-white truncate">{user.displayName}</p>
+                        <p className="text-xs text-white/30">@{user.username}</p>
+                      </div>
+                      {quickLoginLoading === user.username ? (
+                        <Loader2 className="w-4 h-4 text-blue-400 animate-spin shrink-0" />
+                      ) : (
+                        <LogIn className="w-4 h-4 text-white/20 shrink-0" />
+                      )}
+                    </motion.button>
+                  ))}
+                </div>
+              </div>
 
-              <motion.button className="w-full py-3.5 rounded-xl border border-white/10 text-white/70 font-medium text-sm mt-3 hover:bg-white/[0.03] transition-colors" onClick={() => setMode('login')} whileTap={{ scale: 0.98 }}>
-                Sign In
-              </motion.button>
+              <div className="w-full border-t border-white/[0.06] pt-4">
+                <motion.button className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-500 to-blue-600 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 transition-shadow" onClick={() => setMode('login')} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }}>
+                  Sign in manually <ArrowRight className="w-4 h-4" />
+                </motion.button>
+
+                <motion.button className="w-full py-3 rounded-xl border border-white/10 text-white/70 font-medium text-sm mt-2 hover:bg-white/[0.03] transition-colors" onClick={() => setMode('signup')} whileTap={{ scale: 0.98 }}>
+                  Create new account
+                </motion.button>
+              </div>
 
               <div className="mt-6 flex flex-col items-center gap-1.5">
                 <p className="text-[10px] text-white/[0.1] tracking-[0.25em] uppercase font-medium">Xbee Technologies</p>

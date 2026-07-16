@@ -93,6 +93,11 @@ export default function AdminPage() {
   const [broadcastSent, setBroadcastSent] = useState(false);
 
   // Post as User (admin feature)
+
+  // Verified Changes
+  const { verifiedChanges, isVerifiedChange, toggleVerifiedChange } = useApp();
+  const [showVerifiedChanges, setShowVerifiedChanges] = useState(false);
+
   const [showPostAsUser, setShowPostAsUser] = useState(false);
   const [postAsUserId, setPostAsUserId] = useState('');
   const [postAsContent, setPostAsContent] = useState('');
@@ -505,6 +510,43 @@ export default function AdminPage() {
                           <div className="col-span-2">
                             <label className="text-[10px] text-theme-tertiary mb-1 block">Avatar URL</label>
                             <input className="xbee-input text-xs" defaultValue={user.avatar} onBlur={e => { if (e.target.value !== user.avatar) updateUserInSystem(user.id, { avatar: e.target.value }); }} />
+                          </div>
+                        </div>
+
+                        {/* Verified Changes Toggle */}
+                        <div className="pt-2 border-t border-theme">
+                          <label className="text-xs font-bold text-theme-secondary mb-2 block flex items-center gap-1.5">
+                            <Star className="w-3.5 h-3.5 text-yellow-400" /> Verified Changes
+                          </label>
+                          <p className="text-[10px] text-theme-tertiary mb-2">Allows this user to custom-edit followers/following, backdate posts, and choose their verification badge.</p>
+                          <motion.button
+                            className={cn(
+                              'w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all border',
+                              isVerifiedChange(user.id)
+                                ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                : 'bg-theme-hover border-transparent text-theme-secondary'
+                            )}
+                            onClick={() => { toggleVerifiedChange(user.id); addLog('Verified Changes Toggled', `@${user.username} → ${!isVerifiedChange(user.id) ? 'Enabled' : 'Disabled'}`, 'medium'); }}
+                            whileTap={{ scale: 0.97 }}
+                          >
+                            <div className="flex items-center gap-2">
+                              {isVerifiedChange(user.id) ? <CheckCircle className="w-4 h-4" /> : <Star className="w-4 h-4" />}
+                              {isVerifiedChange(user.id) ? 'Verified Changes: Active' : 'Grant Verified Changes'}
+                            </div>
+                            <div className={cn('w-9 h-5 rounded-full relative transition-colors', isVerifiedChange(user.id) ? 'bg-yellow-500' : 'bg-theme-tertiary')}>
+                              <div className={cn('w-4 h-4 rounded-full bg-white absolute top-0.5 transition-transform', isVerifiedChange(user.id) ? 'translate-x-[18px]' : 'translate-x-0.5')} />
+                            </div>
+                          </motion.button>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {isVerifiedChange(user.id) && (
+                              <span className="text-[9px] px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400">✏️ Edit Followers</span>
+                            )}
+                            {isVerifiedChange(user.id) && (
+                              <span className="text-[9px] px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400">📅 Backdate Posts</span>
+                            )}
+                            {isVerifiedChange(user.id) && (
+                              <span className="text-[9px] px-2 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400">🏅 Badge Selection</span>
+                            )}
                           </div>
                         </div>
 

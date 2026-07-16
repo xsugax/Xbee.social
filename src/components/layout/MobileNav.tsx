@@ -1,15 +1,16 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Home, Search, Bell, Mail, User, Feather, X, Bookmark, Users,
-  DollarSign, Settings, Menu, MessageCircle, Sparkles, Shield
+  DollarSign, Settings, Menu, MessageCircle, Sparkles, Shield, ArrowLeft
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
+import Avatar from '@/components/ui/Avatar';
 import AccountSwitcher from '@/components/layout/AccountSwitcher';
 
 const mobileNavItems = [
@@ -40,6 +41,24 @@ export default function MobileNav() {
   const [showDrawer, setShowDrawer] = useState(false);
   const [composeText, setComposeText] = useState('');
 
+  const [showMobileSearch, setShowMobileSearch] = useState(false);
+  const [mobileSearchQuery, setMobileSearchQuery] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (showMobileSearch && searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [showMobileSearch]);
+
+  const handleMobileSearch = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && mobileSearchQuery.trim()) {
+      router.push(`/explore?q=${encodeURIComponent(mobileSearchQuery.trim())}`);
+      setShowMobileSearch(false);
+      setMobileSearchQuery('');
+    }
+  };
+
   const handlePost = () => {
     if (!composeText.trim()) return;
     addPost(composeText);
@@ -50,34 +69,57 @@ export default function MobileNav() {
 
   return (
     <>
-      {/* Top bar with hamburger menu */}
-      <div className="fixed top-0 left-0 right-0 z-50 glass border-b border-theme lg:hidden flex items-center justify-between px-4 py-2">
-        <motion.button
-          className="p-2 rounded-lg hover:bg-theme-hover transition-colors"
-          onClick={() => setShowDrawer(true)}
-          whileTap={{ scale: 0.9 }}
-        >
-          <Menu className="w-6 h-6 text-theme-primary" />
-        </motion.button>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 rounded-lg flex items-center justify-center shrink-0">
-            <svg width="18" height="18" viewBox="0 0 48 48" fill="none">
-              <path d="M10 8L21 22.5L10 38H14L23 27L31 38H38L26.5 22L37 8H33L24.5 18.5L17 8H10Z" fill="white" />
-            </svg>
+      {/* Top bar with hamburger menu + search */}
+      <div className="fixed top-0 left-0 right-0 z-50 glass border-b border-theme lg:hidden">
+        {showMobileSearch ? (
+          <div className="flex items-center gap-2 px-3 py-2">
+            <button className="p-1.5 rounded-lg hover:bg-theme-hover" onClick={() => { setShowMobileSearch(false); setMobileSearchQuery(''); }}>
+              <ArrowLeft className="w-5 h-5 text-theme-primary" />
+            </button>
+            <input
+              ref={searchInputRef}
+              type="text"
+              placeholder="Search people, posts..."
+              value={mobileSearchQuery}
+              onChange={(e) => setMobileSearchQuery(e.target.value)}
+              onKeyDown={handleMobileSearch}
+              className="flex-1 bg-theme-tertiary text-theme-primary text-sm px-4 py-2 rounded-full border border-theme placeholder:text-theme-tertiary focus:outline-none focus:ring-2 focus:ring-xbee-primary/50"
+            />
           </div>
-          <span className="text-base font-black text-gradient">Xbee</span>
-        </div>
-        <div className="flex items-center gap-1">
-          {/* Notification badge small */}
-          {unreadCount > 0 && (
-            <Link href="/notifications" className="relative p-2">
-              <Bell className="w-5 h-5 text-theme-secondary" />
-              <span className="absolute top-0.5 right-0.5 min-w-[16px] h-[16px] bg-xbee-primary text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5">
-                {unreadCount}
-              </span>
-            </Link>
-          )}
-        </div>
+        ) : (
+          <div className="flex items-center justify-between px-4 py-2">
+            <motion.button
+              className="p-2 rounded-lg hover:bg-theme-hover transition-colors"
+              onClick={() => setShowDrawer(true)}
+              whileTap={{ scale: 0.9 }}
+            >
+              <Menu className="w-6 h-6 text-theme-primary" />
+            </motion.button>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-gradient-to-br from-blue-500 via-blue-600 to-indigo-700 rounded-lg flex items-center justify-center shrink-0">
+                <svg width="18" height="18" viewBox="0 0 48 48" fill="none">
+                  <path d="M10 8L21 22.5L10 38H14L23 27L31 38H38L26.5 22L37 8H33L24.5 18.5L17 8H10Z" fill="white" />
+                </svg>
+              </div>
+              <span className="text-base font-black text-gradient">Xbee</span>
+            </div>
+            <div className="flex items-center gap-1">
+              {/* Search toggle */}
+              <button className="p-2 rounded-lg hover:bg-theme-hover" onClick={() => setShowMobileSearch(true)}>
+                <Search className="w-5 h-5 text-theme-secondary" />
+              </button>
+              {/* Notification badge small */}
+              {unreadCount > 0 && (
+                <Link href="/notifications" className="relative p-2">
+                  <Bell className="w-5 h-5 text-theme-secondary" />
+                  <span className="absolute top-0.5 right-0.5 min-w-[16px] h-[16px] bg-xbee-primary text-white text-[9px] font-bold rounded-full flex items-center justify-center px-0.5">
+                    {unreadCount}
+                  </span>
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Drawer overlay */}

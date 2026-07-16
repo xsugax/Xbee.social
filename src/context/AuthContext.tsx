@@ -13,6 +13,7 @@ interface AuthState {
   loading: boolean;
   signUp: (email: string, password: string, username: string, displayName: string) => Promise<{ error?: string; needsConfirmation?: boolean }>;
   signIn: (emailOrUsername: string, password: string) => Promise<{ error?: string }>;
+  quickSignIn: (emailOrUsername: string, password: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<Profile>) => Promise<boolean>;
   isSupabaseConfigured: boolean;
@@ -43,7 +44,7 @@ function profileToUser(profile: Profile): User {
     id: profile.id,
     username: profile.username,
     displayName: profile.display_name,
-    avatar: profile.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${profile.username}`,
+    avatar: profile.avatar || '',
     coverImage: (profile as any).cover_image || '',
     bio: profile.bio,
     verified: profile.verified,
@@ -64,7 +65,7 @@ interface LocalUser {
   email: string;
   username: string;
   displayName: string;
-  password: string; // hashed
+  password: string;
   createdAt: string;
 }
 
@@ -100,7 +101,6 @@ function ensureLocalDefaults() {
   if (changed) saveLocalUsers(users);
 }
 
-// Check if Supabase env vars exist — but also detect if they actually work
 const SUPABASE_ENVS_SET = !!(
   typeof process !== 'undefined' &&
   process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -126,22 +126,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    // Test Supabase connectivity
     async function testSupabase() {
       try {
         const supabase = getSupabase();
-        // Timeout-based check: if the fetch takes >3s or throws, assume broken
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 3000);
         const { error } = await supabase.from('profiles').select('id', { count: 'exact', head: true }).abortSignal(controller.signal);
         clearTimeout(timeout);
-        if (error) {
-          throw error;
-        }
-        // Supabase works — proceed normally
+        if (error) throw error;
+        
         setIsSupabaseConfigured(true);
 
-        // Get initial session
         const { data: { session: s } } = await supabase.auth.getSession();
         setSession(s);
         setUser(s?.user ?? null);
@@ -151,7 +146,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         setLoading(false);
 
-        // Listen for auth changes
         const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
           setSession(s);
           setUser(s?.user ?? null);
@@ -167,7 +161,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         supabaseChecked.current = true;
         return () => subscription.unsubscribe();
       } catch {
-        // Supabase is configured but unreachable — fall back to localStorage
         console.warn('Supabase unreachable. Falling back to localStorage auth.');
         setIsSupabaseConfigured(false);
         setLoading(false);
@@ -181,9 +174,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (!isSupabaseConfigured || !user) return;
     const supabase = getSupabase();
-
     supabase.from('profiles').update({ is_online: true, last_seen: new Date().toISOString() }).eq('id', user.id).then(() => {});
-
     const handleUnload = () => {
       navigator.sendBeacon?.(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`, JSON.stringify({ is_online: false, last_seen: new Date().toISOString() }));
     };
@@ -197,16 +188,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // ─── Sign Up ──────────────────────────────────────────────
   const signUp = useCallback(async (email: string, password: string, username: string, displayName: string) => {
     if (isSupabaseConfigured) {
-      // Supabase signup
       try {
         const supabase = getSupabase();
         const { data: existing } = await supabase.from('profiles').select('id').ilike('username', username).single();
         if (existing) return { error: 'Username is already taken' };
-
-        const { data, error } = await supabase.auth.signUp({
-          email, password,
-          options: { data: { username, display_name: displayName } },
-        });
+        const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { username, display_name: displayName } } });
         if (error) return { error: error.message };
         if (data.user && !data.session) return { needsConfirmation: true };
         if (data.user) {
@@ -219,22 +205,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // LocalStorage signup
     const users = getLocalUsers();
-    if (users.find(u => u.email.toLowerCase() === email.toLowerCase())) {
-      return { error: 'An account with this email already exists' };
-    }
-    if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) {
-      return { error: 'This username is already taken' };
-    }
+    if (users.find(u => u.email.toLowerCase() === email.toLowerCase())) return { error: 'An account with this email already exists' };
+    if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) return { error: 'This username is already taken' };
+    
     const hashedPw = await hashPassword(password);
     users.push({ email: email.toLowerCase(), username: username.toLowerCase(), displayName: displayName.trim(), password: hashedPw, createdAt: new Date().toISOString() });
     saveLocalUsers(users);
 
-    // Auto-login
     localStorage.setItem('xbee_session', JSON.stringify({ email: email.toLowerCase(), username: username.toLowerCase(), displayName: displayName.trim(), loggedInAt: new Date().toISOString() }));
     localStorage.setItem('xbee_remembered', 'true');
-    try { localStorage.setItem('xbee_profile', JSON.stringify({ displayName: displayName.trim(), username: username.toLowerCase() })); } catch {}
+    localStorage.setItem('xbee_profile', JSON.stringify({ displayName: displayName.trim(), username: username.toLowerCase(), avatar: '' }));
     return {};
   }, [isSupabaseConfigured]);
 
@@ -251,9 +232,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) {
-          if (error.message.toLowerCase().includes('email not confirmed')) {
-            return { error: 'Email not confirmed. Please check your inbox.' };
-          }
+          if (error.message.toLowerCase().includes('email not confirmed')) return { error: 'Email not confirmed. Please check your inbox.' };
           return { error: error.message };
         }
         return {};
@@ -262,36 +241,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // LocalStorage signin
     const users = getLocalUsers();
     const id = emailOrUsername.trim().toLowerCase();
-    const user = users.find(u => u.email.toLowerCase() === id || u.username.toLowerCase() === id);
-    if (!user) return { error: 'Account not found. Check your email or username.' };
+    const localUser = users.find(u => u.email.toLowerCase() === id || u.username.toLowerCase() === id);
+    if (!localUser) return { error: 'Account not found. Check your email or username.' };
+    
     const hashedPass = await hashPassword(password);
-    if (user.password !== hashedPass && user.password !== password) {
+    if (localUser.password !== hashedPass && localUser.password !== password) {
       return { error: 'Incorrect password. Try again.' };
     }
-    localStorage.setItem('xbee_session', JSON.stringify({ email: user.email, username: user.username, displayName: user.displayName, loggedInAt: new Date().toISOString() }));
+    
+    // Clear old profile to prevent avatar bleeding between users
+    localStorage.setItem('xbee_session', JSON.stringify({ 
+      email: localUser.email, username: localUser.username, 
+      displayName: localUser.displayName, loggedInAt: new Date().toISOString() 
+    }));
     localStorage.setItem('xbee_remembered', 'true');
-    try {
-      const existing = JSON.parse(localStorage.getItem('xbee_profile') || '{}');
-      localStorage.setItem('xbee_profile', JSON.stringify({ ...existing, displayName: user.displayName, username: user.username }));
-    } catch {}
+    localStorage.setItem('xbee_profile', JSON.stringify({ 
+      displayName: localUser.displayName, username: localUser.username, avatar: '' 
+    }));
     return {};
   }, [isSupabaseConfigured]);
+
+  // Same as signIn but also returns full user data for immediate use
+  const quickSignIn = useCallback(async (emailOrUsername: string, password: string) => {
+    const result = await signIn(emailOrUsername, password);
+    return result;
+  }, [signIn]);
 
   // ─── Sign Out ──────────────────────────────────────────────
   const signOut = useCallback(async () => {
     if (isSupabaseConfigured) {
       try {
         const supabase = getSupabase();
-        if (user) {
-          await supabase.from('profiles').update({ is_online: false }).eq('id', user.id);
-        }
+        if (user) await supabase.from('profiles').update({ is_online: false }).eq('id', user.id);
         await supabase.auth.signOut();
       } catch {}
     } else {
-      // Clear session
       try { localStorage.removeItem('xbee_session'); } catch {}
       try { localStorage.removeItem('xbee_profile'); } catch {}
       try { localStorage.removeItem('xbee_remembered'); } catch {}
@@ -322,7 +308,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, profile, session, loading,
-      signUp, signIn, signOut,
+      signUp, signIn, quickSignIn, signOut,
       updateProfile: updateUserProfile,
       isSupabaseConfigured,
     }}>

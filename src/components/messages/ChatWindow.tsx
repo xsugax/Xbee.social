@@ -63,81 +63,94 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
   const isHighRisk = conversation?.riskLevel === 'warning';
   const hasScamAlerts = (conversation?.scamAlerts?.length ?? 0) > 0;
 
-  // Real-time typing indicator via Supabase Broadcast
+  // ─── TYPING INDICATOR (real-time broadcast) ────────────────────
+  const typingChannelRef = useRef<ReturnType<ReturnType<typeof getSupabase>['channel']> | null>(null);
+
   useEffect(() => {
     if (!isLive || !convId) return;
     const supabase = getSupabase();
 
-    const channel = supabase.channel(`typing-${convId}`)
+    // Subscribe to typing events
+    const typingChannel = supabase.channel(`typing-${convId}`)
       .on('broadcast', { event: 'typing' }, (payload) => {
-        if (payload.payload?.userId !== authUser!.id) {
-          setRemoteTyping(true);
-          // Clear after 3s of no typing events
-          if (typingTimeout.current) clearTimeout(typingTimeout.current);
-          typingTimeout.current = setTimeout(() => setRemoteTyping(false), 3000);
-        }
+        if (payload.payload?.userId !== otherUser.id) return;
+        setRemoteTyping(true);
+        if (typingTimeout.current) clearTimeout(typingTimeout.current);
+        typingTimeout.current = setTimeout(() => setRemoteTyping(false), 3000);
       })
       .on('broadcast', { event: 'typing_stop' }, () => {
         setRemoteTyping(false);
+        if (typingTimeout.current) clearTimeout(typingTimeout.current);
+      })
+      .subscribe();
+    typingChannelRef.current = typingChannel;
+
+    // Subscribe to online status changes
+    const onlineChannel = supabase.channel(`online-${otherUser.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'profiles',
+        filter: `id=eq.${otherUser.id}`,
+      }, (payload) => {
+        setOtherUserOnline(payload.new?.is_online ?? false);
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
-  }, [isLive, convId, authUser]);
+    // Initial online fetch
+    (async () => {
+      try {
+        const { data } = await supabase.from('profiles').select('is_online').eq('id', otherUser.id).single();
+        if (data) setOtherUserOnline(data.is_online);
+      } catch {}
+    })();
 
-  // Check if other user is online
-  useEffect(() => {
-    if (!isLive) return;
-    const supabase = getSupabase();
+    return () => {
+      supabase.removeChannel(typingChannel);
+      supabase.removeChannel(onlineChannel);
+    };
+  }, [isLive, convId, otherUser.id]);
 
-    async function checkOnline() {
-      const { data } = await supabase
-        .from('profiles')
-        .select('is_online')
-        .eq('id', otherUser.id)
-        .single<{ is_online: boolean }>();
-      if (data) setOtherUserOnline(data.is_online);
-    }
-    checkOnline();
-  }, [isLive, otherUser.id]);
-
-  // Send typing indicator
+  // Send typing indicator — reuses existing channel
+  const typingStopTimerRef = useRef<NodeJS.Timeout | null>(null);
   const sendTypingIndicator = useCallback(() => {
     if (!isLive || !convId) return;
     const supabase = getSupabase();
-    supabase.channel(`typing-${convId}`).send({
+    void supabase.channel(`typing-${convId}`).send({
       type: 'broadcast',
       event: 'typing',
       payload: { userId: authUser!.id },
     });
+    // Schedule typing_stop after 2s
+    if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
+    typingStopTimerRef.current = setTimeout(() => {
+      void supabase.channel(`typing-${convId}`).send({
+        type: 'broadcast',
+        event: 'typing_stop',
+        payload: { userId: authUser!.id },
+      });
+    }, 2000);
   }, [isLive, convId, authUser]);
 
-  // Ghost Mode: auto-delete expired messages from the store
-  useEffect(() => {
-    if (!ghostMode) return;
-    // Poll every 2s and remove expired messages from messageStore
-    const timer = setInterval(() => {
-      // We can't directly mutate messageStore, so we rely on the visibleMessages filter.
-      // But for live mode, expired ghost messages should be deleted from DB too.
-    }, 2000);
-    return () => clearInterval(timer);
-  }, [ghostMode]);
+  // ─── GHOST MODE ────────────────────────────────────────────────
+  // Reactive tick to re-evaluate visibleMessages every second
+  const [ghostTick, setGhostTick] = useState(0);
 
-  // Filter out expired ghost messages for display
-  const now = Date.now();
-  const visibleMessages = messages.filter((msg: Message) => {
-    if (!msg.ghost?.enabled || !msg.ghost.expiresIn) return true;
-    const sentAt = new Date(msg.createdAt).getTime();
-    return now - sentAt <= msg.ghost.expiresIn * 1000;
-  });
-
-  // Force re-render for ghost message expiry countdown
-  const [, forceUpdate] = useState(0);
   useEffect(() => {
-    if (!ghostMode && !visibleMessages.some(m => m.ghost?.enabled)) return;
-    const timer = setInterval(() => forceUpdate(n => n + 1), 1000);
+    const hasGhostMsgs = messages.some(m => m.ghost?.enabled);
+    if (!ghostMode && !hasGhostMsgs) return;
+    const timer = setInterval(() => setGhostTick(t => t + 1), 1000);
     return () => clearInterval(timer);
-  }, [ghostMode, messages.length]);
+  }, [ghostMode, messages.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Filter out expired ghost messages — computed reactively
+  const visibleMessages = React.useMemo(() => {
+    const now = Date.now();
+    return messages.filter((msg: Message) => {
+      if (!msg.ghost?.enabled || !msg.ghost.expiresIn) return true;
+      const sentAt = new Date(msg.createdAt).getTime();
+      return now - sentAt <= msg.ghost.expiresIn * 1000;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, ghostTick]);
 
   // SafeMode: sanitize URLs in message content
   const sanitizeContent = (content: string): string => {

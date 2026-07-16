@@ -2,15 +2,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Settings, PenSquare, Mail, X, UserPlus, Loader2, Inbox, Check, X as XIcon, UserCheck } from 'lucide-react';
+import { Search, Settings, PenSquare, Mail, X, UserPlus, Loader2, Inbox, Check, X as XIcon, UserCheck, Send, ArrowLeft } from 'lucide-react';
 import ChatList from '@/components/messages/ChatList';
 import ChatWindow from '@/components/messages/ChatWindow';
 import Avatar from '@/components/ui/Avatar';
-import { cn } from '@/lib/utils';
+import { cn, formatTimeAgo } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import { useAuth, profileToUser } from '@/context/AuthContext';
 import { getSupabase } from '@/lib/supabase';
-import { mockUsers } from '@/lib/mockData';
 import { User, Message } from '@/types';
 import { AGI_BOT_ID, agiBotUser, createAgiConversation, getAgiWelcomeMessage } from '@/lib/agiBot';
 import { xbeeThink } from '@/components/ai/XbeeAI';
@@ -20,7 +19,7 @@ export default function MessagesPage() {
     conversations, currentUser, activeConvId, setActiveConvId, loadConversations,
     messageRequests, sendMessageRequest, acceptMessageRequest, dismissMessageRequest,
     messageRequestUnread, canSendMessage, connections, getConnectionStatus,
-    sendConnectionRequest, allUsers
+    sendConnectionRequest, allUsers, addConversation, sendMessage, addReply
   } = useApp();
   const { isSupabaseConfigured, user: authUser } = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
@@ -31,7 +30,6 @@ export default function MessagesPage() {
   const [liveUsers, setLiveUsers] = useState<User[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [startingConvo, setStartingConvo] = useState<string | null>(null);
-  const [requestMessage, setRequestMessage] = useState('');
 
   // AGI companion state
   const [agiMessages, setAgiMessages] = useState<Message[]>([getAgiWelcomeMessage()]);
@@ -75,38 +73,54 @@ export default function MessagesPage() {
   const activeConv = isAgiActive ? agiConversation : conversations.find(c => c.id === activeConvId);
   const otherUser = isAgiActive ? agiBotUser : activeConv?.participants.find(p => p.id !== currentUser.id);
 
-  // Users to show in new message modal
-  const existingUserIds = new Set(conversations.flatMap(c => c.participants.map(p => p.id)));
-  const newMsgUsers = newMsgSearch.trim() 
-    ? allUsers.filter(u => 
-        u.id !== currentUser.id && (
+  // Users to show in new message modal — all users except self and AGI
+  const newMsgUsers = newMsgSearch.trim()
+    ? allUsers.filter(u =>
+        u.id !== currentUser.id && u.id !== AGI_BOT_ID && (
           u.displayName.toLowerCase().includes(newMsgSearch.toLowerCase()) ||
           u.username.toLowerCase().includes(newMsgSearch.toLowerCase())
         )
       ).slice(0, 20)
     : [];
 
-  const handleStartConversation = (userId: string) => {
-    const isConnected = canSendMessage(userId);
-    
-    if (isConnected) {
-      // Connected - open existing or create direct conversation
-      const existing = conversations.find(c => c.participants.some(p => p.id === userId));
-      if (existing) {
-        setActiveConvId(existing.id);
-      } else if (conversations.length > 0) {
-        setActiveConvId(conversations[0].id);
-      }
-      setShowNewMsg(false);
-      setNewMsgSearch('');
+  // ─── OPEN OR CREATE A CONVERSATION ────────────────────────────
+  const openConversationWith = (targetUser: User) => {
+    const existingConv = conversations.find(c =>
+      c.participants.some(p => p.id === targetUser.id)
+    );
+    if (existingConv) {
+      setActiveConvId(existingConv.id);
     } else {
-      // Not connected - send a message request with optional personal message
-      if (requestMessage.trim()) {
-        sendMessageRequest(userId, requestMessage);
-        setRequestMessage('');
-        setShowNewMsg(false);
-        setNewMsgSearch('');
-      }
+      // Create a fresh conversation with this user
+      const greeting: Message = {
+        id: `msg-${Date.now()}-greet`,
+        senderId: targetUser.id,
+        content: `Connected with ${targetUser.displayName} 👋 Say hello!`,
+        type: 'text',
+        createdAt: new Date().toISOString(),
+        read: false,
+        encrypted: true,
+      };
+      const newConv = addConversation([currentUser, targetUser], greeting);
+      setActiveConvId(newConv.id);
+    }
+    setShowNewMsg(false);
+    setNewMsgSearch('');
+    setStartingConvo(null);
+  };
+
+  // ─── HANDLE CLICK ON USER ─────────────────────────────────────
+  const handleUserClick = (user: User) => {
+    const isConnected = canSendMessage(user.id);
+    setStartingConvo(user.id);
+    if (isConnected) {
+      openConversationWith(user);
+    } else {
+      // Not connected — send connection request + message request
+      sendConnectionRequest(user.id);
+      sendMessageRequest(user.id, `Hi! Let's connect on Xbee! 👋`);
+      // Open a conversation anyway so they can chat after acceptance
+      openConversationWith(user);
     }
   };
 
@@ -121,11 +135,10 @@ export default function MessagesPage() {
           <div className="flex items-center justify-between px-4 py-3">
             <h1 className="text-xl font-bold text-theme-primary">Messages</h1>
             <div className="flex items-center gap-1">
-              {/* Message requests badge */}
-              <motion.button 
+              <motion.button
                 className={cn('p-2 rounded-full transition-colors relative', messageRequestUnread > 0 ? 'text-xbee-primary bg-xbee-primary/10' : 'hover:bg-theme-hover text-theme-secondary')}
                 whileTap={{ scale: 0.9 }}
-                onClick={() => setShowRequests(!showRequests)} 
+                onClick={() => setShowRequests(!showRequests)}
                 title="Message Requests"
               >
                 <Inbox className="w-5 h-5" />
@@ -138,7 +151,7 @@ export default function MessagesPage() {
               <motion.button className="p-2 rounded-full hover:bg-theme-hover text-theme-secondary" whileTap={{ scale: 0.9 }} onClick={() => setShowSettings(!showSettings)} title="Settings">
                 <Settings className="w-5 h-5" />
               </motion.button>
-              <motion.button className="p-2 rounded-full hover:bg-theme-hover text-theme-secondary" whileTap={{ scale: 0.9 }} onClick={() => { setShowNewMsg(true); setRequestMessage(''); }} title="New Message">
+              <motion.button className="p-2 rounded-full hover:bg-theme-hover text-theme-secondary" whileTap={{ scale: 0.9 }} onClick={() => setShowNewMsg(true)} title="New Message">
                 <PenSquare className="w-5 h-5" />
               </motion.button>
             </div>
@@ -247,8 +260,8 @@ export default function MessagesPage() {
                 <Mail className="w-10 h-10 text-xbee-primary" />
               </div>
               <h2 className="text-2xl font-bold text-theme-primary mb-2">Select a message</h2>
-              <p className="text-theme-secondary max-w-sm">Choose from your existing conversations or start a new one. Only connected users can send direct messages — everyone else goes to message requests.</p>
-              <motion.button className="xbee-button-primary mt-4" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => { setShowNewMsg(true); setRequestMessage(''); }}>
+              <p className="text-theme-secondary max-w-sm">Choose from your existing conversations or start a new one. Connected users chat instantly — everyone else gets a message request.</p>
+              <motion.button className="xbee-button-primary mt-4" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }} onClick={() => { setShowNewMsg(true); }}>
                 New Message
               </motion.button>
             </div>
@@ -277,11 +290,11 @@ export default function MessagesPage() {
                     <p className="text-sm text-theme-tertiary">Search for a person to message</p>
                     <div className="mt-4 flex items-center gap-2 justify-center text-xs text-theme-tertiary">
                       <UserCheck className="w-3.5 h-3.5 text-xbee-success" />
-                      <span>Connected users can DM directly</span>
+                      <span>Connected users open instantly</span>
                     </div>
                     <div className="mt-1 flex items-center gap-2 justify-center text-xs text-theme-tertiary">
-                      <Inbox className="w-3.5 h-3.5 text-amber-400" />
-                      <span>Others will appear as message requests</span>
+                      <UserPlus className="w-3.5 h-3.5 text-xbee-primary" />
+                      <span>New users get a connect + message request</span>
                     </div>
                   </div>
                 ) : searchingUsers ? (
@@ -298,74 +311,40 @@ export default function MessagesPage() {
                     {newMsgUsers.map((user) => {
                       const connStatus = getConnectionStatus(user.id);
                       const isConnected = connStatus === 'connected';
-                      const isPending = connStatus === 'pending_sent' || connStatus === 'pending_received';
+                      const isPending = connStatus === 'pending_sent';
                       return (
-                        <div key={user.id}>
-                          <motion.button
-                            className="flex items-center gap-3 w-full px-4 py-3 hover:bg-theme-hover transition-colors text-left"
-                            onClick={() => {
-                              if (isConnected) {
-                                handleStartConversation(user.id);
-                              }
-                            }}
-                            whileTap={{ scale: 0.98 }}
-                          >
-                            <Avatar name={user.displayName} src={user.avatar} verified={user.verified} />
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5">
-                                <p className="font-bold text-sm text-theme-primary truncate">{user.displayName}</p>
-                                {isConnected && <UserCheck className="w-3.5 h-3.5 text-xbee-success shrink-0" />}
-                              </div>
-                              <p className="text-xs text-theme-tertiary">@{user.username}</p>
+                        <motion.button
+                          key={user.id}
+                          className="flex items-center gap-3 w-full px-4 py-3 hover:bg-theme-hover transition-colors text-left"
+                          onClick={() => handleUserClick(user)}
+                          whileTap={{ scale: 0.98 }}
+                          initial={{ opacity: 0, y: 5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                        >
+                          <Avatar name={user.displayName} src={user.avatar} verified={user.verified} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <p className="font-bold text-sm text-theme-primary truncate">{user.displayName}</p>
                             </div>
-                            {isConnected ? (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-xbee-success/10 text-xbee-success font-bold shrink-0">Connected</span>
-                            ) : isPending ? (
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 font-bold shrink-0">Pending</span>
-                            ) : (
-                              <div className="shrink-0 flex items-center gap-1">
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-theme-tertiary text-theme-tertiary font-bold">Request</span>
-                              </div>
-                            )}
-                          </motion.button>
-                          {!isConnected && !isPending && (
-                            <div className="px-4 pb-3 pl-14">
-                              <div className="flex gap-2 items-center">
-                                <input
-                                  type="text"
-                                  placeholder="Optional: add a personal message..."
-                                  className="flex-1 bg-theme-tertiary text-theme-primary text-xs rounded-full px-3 py-1.5 outline-none placeholder:text-theme-tertiary"
-                                  value={requestMessage}
-                                  onChange={(e) => setRequestMessage(e.target.value)}
-                                />
-                                <motion.button
-                                  className="shrink-0 px-3 py-1.5 rounded-full bg-xbee-primary text-white text-xs font-bold hover:bg-xbee-primary/90 transition-colors flex items-center gap-1"
-                                  onClick={() => {
-                                    sendMessageRequest(user.id, requestMessage);
-                                    setRequestMessage('');
-                                    setShowNewMsg(false);
-                                    setNewMsgSearch('');
-                                  }}
-                                  whileTap={{ scale: 0.95 }}
-                                >
-                                  <SendIcon className="w-3 h-3" /> Send
-                                </motion.button>
-                                <motion.button
-                                  className="shrink-0 px-2 py-1.5 rounded-full border border-xbee-primary text-xbee-primary text-xs font-bold hover:bg-xbee-primary/10 transition-colors flex items-center gap-1"
-                                  onClick={() => {
-                                    sendConnectionRequest(user.id, requestMessage);
-                                    setRequestMessage('');
-                                    setShowNewMsg(false);
-                                    setNewMsgSearch('');
-                                  }}
-                                  whileTap={{ scale: 0.95 }}
-                                >
-                                  <UserPlus className="w-3 h-3" /> Connect
-                                </motion.button>
-                              </div>
-                            </div>
+                            <p className="text-xs text-theme-tertiary">@{user.username}</p>
+                            <p className="text-[10px] text-theme-tertiary mt-0.5 line-clamp-1">{user.bio?.slice(0, 60) || 'No bio'}</p>
+                          </div>
+                          {startingConvo === user.id ? (
+                            <Loader2 className="w-4 h-4 animate-spin text-xbee-primary shrink-0" />
+                          ) : isConnected ? (
+                            <span className="text-[10px] px-2.5 py-1 rounded-full bg-xbee-success/10 text-xbee-success font-bold shrink-0 whitespace-nowrap">
+                              Chat now
+                            </span>
+                          ) : isPending ? (
+                            <span className="text-[10px] px-2.5 py-1 rounded-full bg-amber-500/10 text-amber-400 font-bold shrink-0 whitespace-nowrap">
+                              Pending
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2.5 py-1 rounded-full bg-xbee-primary/10 text-xbee-primary font-bold shrink-0 whitespace-nowrap flex items-center gap-1">
+                              <UserPlus className="w-3 h-3" /> Connect & Message
+                            </span>
                           )}
-                        </div>
+                        </motion.button>
                       );
                     })}
                   </div>
@@ -380,7 +359,7 @@ export default function MessagesPage() {
 }
 
 // ========== AGI Companion Chat Window ==========
-import { ArrowLeft as ArrowLeftIcon, Send as SendIcon, Brain } from 'lucide-react';
+import { Brain } from 'lucide-react';
 
 function AgiChatWindow({
   messages, setMessages, currentUser, agiTyping, setAgiTyping, onBack
@@ -417,7 +396,7 @@ function AgiChatWindow({
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 px-4 py-3 border-b border-theme glass shrink-0">
         <motion.button className="p-1.5 rounded-full hover:bg-theme-hover lg:hidden" onClick={onBack} whileTap={{ scale: 0.9 }}>
-          <ArrowLeftIcon className="w-5 h-5 text-theme-primary" />
+          <ArrowLeft className="w-5 h-5 text-theme-primary" />
         </motion.button>
         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-xbee-primary via-xbee-secondary to-xbee-accent flex items-center justify-center">
           <Brain className="w-5 h-5 text-white" />
@@ -463,7 +442,7 @@ function AgiChatWindow({
         <div className="flex items-center gap-2">
           <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()} placeholder="Ask Xbee AGI anything..." className="flex-1 bg-theme-tertiary text-theme-primary rounded-full px-4 py-2.5 text-sm placeholder:text-theme-tertiary outline-none focus:ring-2 focus:ring-xbee-primary/30 transition-all" />
           <motion.button className={cn('p-2.5 rounded-full transition-colors', input.trim() ? 'bg-xbee-primary text-white' : 'text-theme-tertiary bg-theme-hover')} onClick={handleSend} whileTap={{ scale: 0.9 }} disabled={!input.trim()}>
-            <SendIcon className="w-5 h-5" />
+            <Send className="w-5 h-5" />
           </motion.button>
         </div>
       </div>

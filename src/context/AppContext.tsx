@@ -119,6 +119,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [messageStore, setMessageStore] = useState<Record<string, Message[]>>(hasSupabaseEnv ? {} : {
     'conv-1': mockMessages, 'conv-4': mockScamMessages,
   });
+  
+  // ─── MESSAGE ENGINE (high-performance O(1) messaging) ──────────
+  const messageEngine = useRef<import('@/lib/messageEngine').MessageEngine | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>(() => {
     if (hasSupabaseEnv) return [];
     if (typeof window === 'undefined') return mockNotifications;

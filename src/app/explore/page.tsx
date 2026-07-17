@@ -25,7 +25,7 @@ const tabs: { id: ExploreTab; label: string }[] = [
 ];
 
 export default function ExplorePage() {
-  const { posts, followUser, unfollowUser, isFollowing, currentUser } = useApp();
+  const { posts, followUser, unfollowUser, isFollowingUser, currentUser } = useApp();
   const { isSupabaseConfigured } = useAuth();
   const [activeTab, setActiveTab] = useState<ExploreTab>('trending');
   const [searchQuery, setSearchQuery] = useState('');
@@ -159,14 +159,14 @@ export default function ExplorePage() {
                     <motion.button
                       className={cn(
                         'px-3 py-1.5 rounded-full text-xs font-bold transition-colors shrink-0',
-                        isFollowing(user.id)
+                        isFollowingUser(user.id)
                           ? 'border border-theme text-theme-primary hover:border-red-500 hover:text-red-500'
                           : 'bg-xbee-primary text-white hover:bg-xbee-primary/90'
                       )}
-                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); isFollowing(user.id) ? unfollowUser(user.id) : followUser(user.id); }}
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); isFollowingUser(user.id) ? unfollowUser(user.id) : followUser(user.id); }}
                       whileTap={{ scale: 0.9 }}
                     >
-                      {isFollowing(user.id) ? 'Following' : 'Follow'}
+                      {isFollowingUser(user.id) ? 'Following' : 'Follow'}
                     </motion.button>
                   )}
                 </Link>

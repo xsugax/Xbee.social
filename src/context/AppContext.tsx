@@ -52,6 +52,12 @@ interface AppState {
   dismissMessageRequest: (requestId: string) => void;
   messageRequestUnread: number;
 
+  // Legacy follow/unfollow (used by explore, profile, onboarding pages)
+  followUser: (userId: string) => Promise<void>;
+  unfollowUser: (userId: string) => Promise<void>;
+  isFollowingUser: (userId: string) => boolean;
+  following: Set<string>;
+
   conversations: Conversation[];
   addConversation: (participants: User[], firstMessage: Message) => Conversation;
   loadConversations: () => Promise<void>;
@@ -775,6 +781,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       connectionRequests, connections, pendingSent, pendingReceived, connectionHeat,
 
       messageRequests, sendMessageRequest, acceptMessageRequest, dismissMessageRequest, messageRequestUnread,
+
+      followUser, unfollowUser, isFollowingUser, following: connections,
 
       conversations, addConversation, loadConversations, getMessages, sendMessage, addReply, activeConvId, setActiveConvId, canSendMessage,
 

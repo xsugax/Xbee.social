@@ -4,17 +4,11 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Mail, Lock, Eye, EyeOff, ArrowRight, Shield, Fingerprint,
-  Smartphone, ChevronLeft, Check, User, AtSign, AlertCircle, Loader2, CheckCircle2, LogIn
+  Smartphone, ChevronLeft, Check, User, AtSign, AlertCircle, Loader2, CheckCircle2
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 type AuthMode = 'welcome' | 'login' | 'signup' | 'verify';
-
-const quickUsers = [
-  { displayName: 'Alex Chen', username: 'alexchen', email: 'alex@xbee.com', password: 'alex1234', gradient: 'from-blue-500 to-blue-600' },
-  { displayName: 'Test User', username: 'testuser', email: 'test@xbee.com', password: 'test1234', gradient: 'from-emerald-500 to-teal-600' },
-  { displayName: 'Demo Account', username: 'demo', email: 'demo@xbee.com', password: 'demo1234', gradient: 'from-purple-500 to-pink-600' },
-];
 
 export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
   const { signIn, signUp } = useAuth();
@@ -31,21 +25,6 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
   const [loading, setLoading] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
   const [needsEmailConfirm, setNeedsEmailConfirm] = useState(false);
-  const [quickLoginLoading, setQuickLoginLoading] = useState<string | null>(null);
-
-  const handleQuickLogin = async (user: typeof quickUsers[0]) => {
-    setQuickLoginLoading(user.username);
-    setError('');
-    try { localStorage.setItem('xbee_remembered', 'true'); } catch {}
-    const result = await signIn(user.email, user.password);
-    setQuickLoginLoading(null);
-    if (result.error) {
-      setError(result.error);
-      return;
-    }
-    onAuth();
-  };
-
   const handleLogin = async () => {
     setError('');
     const id = loginId.trim().toLowerCase();
@@ -185,36 +164,8 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
                 ))}
               </div>
 
-              {/* Quick login users */}
               <div className="w-full mb-6">
-                <p className="text-xs text-white/30 font-medium mb-3 text-center">Quick access — tap to sign in</p>
-                <div className="space-y-2">
-                  {quickUsers.map((user, i) => (
-                    <motion.button
-                      key={user.username}
-                      className="w-full flex items-center gap-3 px-4 py-3 rounded-xl bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06] transition-colors text-left disabled:opacity-60"
-                      onClick={() => handleQuickLogin(user)}
-                      disabled={quickLoginLoading !== null}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.4 + i * 0.08 }}
-                      whileTap={{ scale: 0.98 }}
-                    >
-                      <div className={`w-9 h-9 rounded-full bg-gradient-to-br ${user.gradient} flex items-center justify-center text-white font-bold text-sm shrink-0`}>
-                        {user.displayName.charAt(0)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-bold text-white truncate">{user.displayName}</p>
-                        <p className="text-xs text-white/30">@{user.username}</p>
-                      </div>
-                      {quickLoginLoading === user.username ? (
-                        <Loader2 className="w-4 h-4 text-blue-400 animate-spin shrink-0" />
-                      ) : (
-                        <LogIn className="w-4 h-4 text-white/20 shrink-0" />
-                      )}
-                    </motion.button>
-                  ))}
-                </div>
+                <p className="text-xs text-white/30 text-center">Create an account or sign in to start connecting.</p>
               </div>
 
               <div className="w-full border-t border-white/[0.06] pt-4">

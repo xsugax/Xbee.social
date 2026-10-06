@@ -191,7 +191,7 @@ export default function LoadingScreen() {
                   <span className="text-[9px] text-white/15 font-medium">All Systems Operational</span>
                 </div>
                 <span className="text-[9px] text-white/[0.06]">|</span>
-                <span className="text-[9px] text-white/15 font-medium">E2E Encrypted</span>
+                <span className="text-[9px] text-white/15 font-medium">Private Chats</span>
                 <span className="text-[9px] text-white/[0.06]">|</span>
                 <span className="text-[9px] text-white/15 font-medium">v2.0</span>
               </div>

@@ -174,7 +174,7 @@ export default function AuthScreen({ onAuth }: { onAuth: () => void }) {
               <div className="grid grid-cols-3 gap-3 w-full mb-6">
                 {[
                   { icon: Shield, label: 'Trusted', desc: 'Verified identities' },
-                  { icon: Fingerprint, label: 'Private', desc: 'E2E encrypted' },
+                  { icon: Fingerprint, label: 'Private', desc: 'Protected access' },
                   { icon: Smartphone, label: 'Intelligent', desc: 'AI-powered safety' },
                 ].map(({ icon: Icon, label, desc }, i) => (
                   <motion.div key={label} className="flex flex-col items-center p-3 rounded-xl bg-white/[0.03] border border-white/[0.05]" initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 + i * 0.1 }}>

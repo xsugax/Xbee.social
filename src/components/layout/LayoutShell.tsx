@@ -22,7 +22,7 @@ export default function LayoutShell({ children }: { children: React.ReactNode })
     <div className="flex min-h-screen">
       <Sidebar />
       <main className={cn(
-        'flex-1 ml-[275px] min-h-screen border-r border-theme max-xl:ml-[88px] max-lg:ml-0 max-lg:pb-16 transition-all duration-300',
+        'flex-1 ml-[275px] min-h-screen border-r border-theme max-xl:ml-[88px] max-lg:ml-0 max-lg:pt-[calc(3.25rem+env(safe-area-inset-top))] max-lg:pb-[calc(4.25rem+env(safe-area-inset-bottom))] transition-all duration-300',
         rightSidebarCollapsed ? 'mr-0' : 'mr-[350px] max-xl:mr-[300px] max-lg:mr-0'
       )}>
         {children}

@@ -6,11 +6,12 @@ import {
   User, Bell, Shield, Palette, Globe, Eye, Database,
   Fingerprint, Smartphone, Key, ChevronRight, Languages, WifiOff,
   Crown, CreditCard, Building2, Scale, FileText, HelpCircle,
-  ExternalLink, Heart, X, Check, Lock, Trash2, Download, AlertCircle,
+  ExternalLink, Heart, X, Check, BellOff, Lock, Trash2, Download, AlertCircle,
   CheckCircle2, Loader2, LogOut
 } from 'lucide-react';
 import ThemeToggle from '@/components/ui/ThemeToggle';
 import { useApp } from '@/context/AppContext';
+import { cn } from '@/lib/utils';
 
 // Settings storage
 function getSettings(): Record<string, boolean> {
@@ -32,7 +33,7 @@ async function hashPassword(password: string): Promise<string> {
 }
 
 export default function SettingsPage() {
-  const { currentUser } = useApp();
+  const { currentUser, notificationsEnabled, setNotificationsEnabled } = useApp();
   const [settings, setSettings] = useState<Record<string, boolean>>({});
   const [showModal, setShowModal] = useState<string | null>(null);
   const [oldPassword, setOldPassword] = useState('');
@@ -52,7 +53,6 @@ export default function SettingsPage() {
       notifComments: saved.notifComments ?? true,
       notifFollows: saved.notifFollows ?? true,
       notifMessages: saved.notifMessages ?? true,
-      notifSound: saved.notifSound ?? true,
       lowDataMode: saved.lowDataMode ?? false,
       aiEnhancement: saved.aiEnhancement ?? true,
       smartReplies: saved.smartReplies ?? true,
@@ -161,7 +161,7 @@ export default function SettingsPage() {
 
   return (
     <div>
-      <div className="sticky top-0 z-30 glass border-b border-theme">
+      <div className="sticky top-0 z-30 glass border-b border-theme max-lg:top-[calc(3.25rem+env(safe-area-inset-top))]">
         <div className="px-4 py-3"><h1 className="text-xl font-bold text-theme-primary">Settings</h1></div>
       </div>
 
@@ -256,12 +256,26 @@ export default function SettingsPage() {
         {/* Notification Preferences */}
         <motion.div className="glass-card overflow-hidden" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <div className="px-5 py-3 border-b border-theme"><h2 className="text-sm font-bold text-theme-tertiary uppercase tracking-wider">Notifications</h2></div>
+          <button
+            type="button"
+            className="flex w-full items-center gap-4 px-5 py-3.5 border-b border-theme text-left hover:bg-theme-hover transition-colors"
+            aria-pressed={notificationsEnabled}
+            onClick={() => setNotificationsEnabled(!notificationsEnabled)}
+          >
+            {notificationsEnabled ? <Bell className="w-5 h-5 text-theme-secondary shrink-0" /> : <BellOff className="w-5 h-5 text-theme-secondary shrink-0" />}
+            <span className="flex-1">
+              <span className="block text-sm font-medium text-theme-primary">Real-time notifications</span>
+              <span className="block text-xs text-theme-tertiary">Turn live in-app updates on or off. Saved history is kept.</span>
+            </span>
+            <span className={cn('relative h-6 w-11 rounded-full transition-colors', notificationsEnabled ? 'bg-xbee-primary' : 'bg-theme-tertiary/40')}>
+              <span className={cn('absolute top-1 h-4 w-4 rounded-full bg-white transition-transform', notificationsEnabled ? 'translate-x-6' : 'translate-x-1')} />
+            </span>
+          </button>
           {[
             { id: 'notifLikes', label: 'Likes', desc: 'When someone likes your post' },
             { id: 'notifComments', label: 'Comments', desc: 'When someone comments on your post' },
             { id: 'notifFollows', label: 'New Followers', desc: 'When someone follows you' },
             { id: 'notifMessages', label: 'Messages', desc: 'New direct messages' },
-            { id: 'notifSound', label: 'Notification Sound', desc: 'Play bee buzz sound' },
           ].map((item) => (
             <div key={item.id} className="flex items-center gap-4 px-5 py-3.5 border-b border-theme last:border-0">
               <Bell className="w-5 h-5 text-theme-secondary shrink-0" />

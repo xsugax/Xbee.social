@@ -126,13 +126,13 @@ export default function MessagesPage() {
   };
 
   return (
-    <div className="flex h-screen max-lg:h-[calc(100vh-64px)]">
+    <div className="flex h-screen max-lg:h-[calc(100dvh-7.5rem-env(safe-area-inset-top)-env(safe-area-inset-bottom))]">
       {/* Chat List */}
       <div className={cn(
         'w-full lg:w-[380px] border-r border-theme flex flex-col',
         activeConvId && 'max-lg:hidden'
       )}>
-        <div className="sticky top-0 glass z-10">
+        <div className="sticky top-0 glass z-10 max-lg:top-[calc(3.25rem+env(safe-area-inset-top))]">
           <div className="flex items-center justify-between px-4 py-3">
             <h1 className="text-xl font-bold text-theme-primary">Messages</h1>
             <div className="flex items-center gap-1">

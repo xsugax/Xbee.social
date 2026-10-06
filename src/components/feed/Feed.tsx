@@ -101,7 +101,7 @@ export default function Feed() {
       .slice(0, 3);
   }, [allUsers, currentUser.id, connections, pendingSent]);
 
-  const handlePost = (content: string, media?: import('@/types').MediaAttachment[]) => { addPost(content, media); };
+  const handlePost = (content: string, media?: import('@/types').MediaAttachment[]) => addPost(content, media);
 
   const emptyFeed = sortedPosts.length === 0 && !initialLoading;
 

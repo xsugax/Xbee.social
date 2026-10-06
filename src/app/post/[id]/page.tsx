@@ -16,7 +16,7 @@ export default function PostPage() {
 
   return (
     <div>
-      <div className="sticky top-0 z-30 glass border-b border-theme px-4 py-3 flex items-center gap-3">
+      <div className="sticky top-0 z-30 glass border-b border-theme px-4 py-3 flex items-center gap-3 max-lg:top-[calc(3.25rem+env(safe-area-inset-top))]">
         <motion.button className="p-1.5 rounded-full hover:bg-theme-hover" onClick={() => router.back()} whileTap={{ scale: 0.9 }}>
           <ArrowLeft className="w-5 h-5 text-theme-primary" />
         </motion.button>

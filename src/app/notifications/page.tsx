@@ -32,12 +32,10 @@ const notifIcons: Record<string, { icon: React.ElementType; color: string }> = {
 };
 
 export default function NotificationsPage() {
-  const { currentUser, notifications, markNotificationRead, unreadCount, connectionRequests, acceptConnectionRequest, declineConnectionRequest } = useApp();
+  const { currentUser, notifications, markNotificationRead, unreadCount, connectionRequests, acceptConnectionRequest, declineConnectionRequest, notificationsEnabled, setNotificationsEnabled } = useApp();
   const [activeTab, setActiveTab] = useState<NotifTab>('all');
   const [showSettings, setShowSettings] = useState(false);
   const [filterType, setFilterType] = useState<string | null>(null);
-  const [isMuted, setIsMuted] = useState(false);
-  const muteTimerRef = React.useRef<NodeJS.Timeout | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const filteredNotifs = (() => {
@@ -63,7 +61,7 @@ export default function NotificationsPage() {
 
   return (
     <div>
-      <div className="sticky top-0 z-30 glass">
+      <div className="sticky top-0 z-30 glass max-lg:top-[calc(3.25rem+env(safe-area-inset-top))]">
         <div className="flex items-center justify-between px-4 py-3">
           <div>
             <h1 className="text-xl font-bold text-theme-primary">Notifications</h1>
@@ -102,14 +100,15 @@ export default function NotificationsPage() {
                 <button className="flex items-center gap-2 w-full py-2 px-3 rounded-lg text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => { setFilterType(filterType ? null : 'like'); setShowSettings(false); }}>
                   <Filter className="w-4 h-4 text-xbee-secondary" /> {filterType ? 'Clear filter' : 'Filter: Likes only'}
                 </button>
-                <button className="flex items-center gap-2 w-full py-2 px-3 rounded-lg text-sm text-theme-primary hover:bg-theme-hover transition-colors" onClick={() => {
-                  setIsMuted(true);
+                <button className="flex items-center gap-2 w-full py-2 px-3 rounded-lg text-sm text-theme-primary hover:bg-theme-hover transition-colors" aria-pressed={notificationsEnabled} onClick={() => {
+                  setNotificationsEnabled(!notificationsEnabled);
                   setShowSettings(false);
-                  if (muteTimerRef.current) clearTimeout(muteTimerRef.current);
-                  muteTimerRef.current = setTimeout(() => setIsMuted(false), 3600_000);
                 }}>
-                  <BellOff className="w-4 h-4 text-theme-tertiary" /> {isMuted ? 'Muted (1 hour)' : 'Mute for 1 hour'}
+                  {notificationsEnabled
+                    ? <><BellOff className="w-4 h-4 text-theme-tertiary" /> Turn off real-time notifications</>
+                    : <><Bell className="w-4 h-4 text-xbee-primary" /> Turn on real-time notifications</>}
                 </button>
+                <p className="px-3 text-xs text-theme-tertiary">Saved notification history is kept when real-time updates are off.</p>
               </div>
             </motion.div>
           )}
@@ -177,7 +176,7 @@ export default function NotificationsPage() {
             const color = iconData.color;
             const notifHref = notif.type === 'follow' ? `/profile?user=${notif.actor?.id || ''}` :
               notif.type === 'message' ? '/messages' :
-              (notif as any).actionUrl || (notif.postId ? `/profile?user=${notif.actor?.id || ''}` : undefined);
+              (notif.postId ? `/profile?user=${notif.actor?.id || ''}` : undefined);
 
             const inner = (
               <motion.div

@@ -1,37 +1,41 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Image, Film, Mic, BarChart3, Smile, MapPin, Globe, Sparkles,
-  X, Wand2, Zap, Camera, Plus
+  Image, Film, Smile, X
 } from 'lucide-react';
 import Avatar from '@/components/ui/Avatar';
 import { useApp } from '@/context/AppContext';
 import { cn } from '@/lib/utils';
 import { MediaAttachment } from '@/types';
+import { removeUserMedia, uploadUserMedia, validateImageFile, validateVideoFile } from '@/lib/mediaUpload';
+import { useToast } from '@/components/ui/Toast';
+import { useAuth } from '@/context/AuthContext';
 
 const MAX_CHARS = 25000;
+const MAX_IMAGE_SIZE = 10 * 1024 * 1024;
+const MAX_VIDEO_SIZE = 50 * 1024 * 1024;
 
 interface PostComposerProps {
-  onPost?: (content: string, media?: MediaAttachment[]) => void;
+  onPost?: (content: string, media?: MediaAttachment[]) => void | Promise<void>;
 }
 
 const EMOJI_SET = ['😀','😂','🥹','❤️','🔥','👏','🎉','💡','🚀','✨','😍','🤔','👀','💪','🙌','😎','🤝','💯','⭐','🎯','✅','🐝','💛','🙃','😤','🫡','🥳','💀','🤡','🫶'];
 
 export default function PostComposer({ onPost }: PostComposerProps) {
   const { currentUser } = useApp();
+  const { showToast } = useToast();
+  const { isSupabaseConfigured, user: authUser } = useAuth();
   const [content, setContent] = useState('');
   const [isFocused, setIsFocused] = useState(false);
-  const [showAI, setShowAI] = useState(false);
-  const [aiEnhancing, setAiEnhancing] = useState(false);
   const [mediaFiles, setMediaFiles] = useState<{ file: File; preview: string; type: 'image' | 'video' }[]>([]);
   const [showEmoji, setShowEmoji] = useState(false);
-  const [showPoll, setShowPoll] = useState(false);
-  const [pollOptions, setPollOptions] = useState(['', '']);
+  const [isPosting, setIsPosting] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const previewsRef = useRef(new Set<string>());
   const [lastPostTime, setLastPostTime] = useState(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('xbee_lastPostTime');
@@ -45,8 +49,24 @@ export default function PostComposer({ onPost }: PostComposerProps) {
   const charCount = content.length;
   const charPercent = (charCount / MAX_CHARS) * 100;
 
-  const handlePost = () => {
+  useEffect(() => () => {
+    previewsRef.current.forEach(URL.revokeObjectURL);
+    previewsRef.current.clear();
+  }, []);
+
+  const createPreview = (file: File) => {
+    const preview = URL.createObjectURL(file);
+    previewsRef.current.add(preview);
+    return preview;
+  };
+
+  const handlePost = async () => {
     if (content.trim() || mediaFiles.length > 0) {
+      if (isPosting) return;
+      if (mediaFiles.length > 0 && (!isSupabaseConfigured || !authUser)) {
+        showToast('Sign in to attach photos or videos to a post.', 'error');
+        return;
+      }
       const now = Date.now();
       if (now - lastPostTime < 5000) {
         const remaining = Math.ceil((5000 - (now - lastPostTime)) / 1000);
@@ -60,38 +80,83 @@ export default function PostComposer({ onPost }: PostComposerProps) {
         }, 1000);
         return;
       }
-      setLastPostTime(now);
-      try { localStorage.setItem('xbee_lastPostTime', now.toString()); } catch {}
-      const mediaAttachments: MediaAttachment[] = mediaFiles.map((mf, i) => ({
-        id: `upload-${Date.now()}-${i}`,
-        type: mf.type,
-        url: mf.preview,
-        alt: `Uploaded ${mf.type}`,
-      }));
-      onPost?.(content, mediaAttachments.length > 0 ? mediaAttachments : undefined);
-      setContent('');
-      setMediaFiles([]);
-      setIsFocused(false);
+      setIsPosting(true);
+      const uploadedUrls: string[] = [];
+      try {
+        const mediaAttachments: MediaAttachment[] = [];
+        for (const mf of mediaFiles) {
+          const url = await uploadUserMedia('post-media', currentUser.id, mf.file, 'posts');
+          uploadedUrls.push(url);
+          mediaAttachments.push({ id: crypto.randomUUID(), type: mf.type, url, alt: `Uploaded ${mf.type}` });
+        }
+        await onPost?.(content, mediaAttachments.length > 0 ? mediaAttachments : undefined);
+        setLastPostTime(now);
+        try { localStorage.setItem('xbee_lastPostTime', now.toString()); } catch {}
+        mediaFiles.forEach(mf => {
+          URL.revokeObjectURL(mf.preview);
+          previewsRef.current.delete(mf.preview);
+        });
+        setContent('');
+        setMediaFiles([]);
+        setIsFocused(false);
+      } catch (error) {
+        console.error('Failed to publish post:', error);
+        for (const url of uploadedUrls) {
+          try {
+            await removeUserMedia('post-media', url);
+          } catch (cleanupError) {
+            console.error('Failed to clean up an unpublished post upload:', cleanupError);
+          }
+        }
+        showToast(error instanceof Error ? error.message : 'Your post could not be published.', 'error');
+      } finally {
+        setIsPosting(false);
+      }
     }
   };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    const newMedia = files.slice(0, 4 - mediaFiles.length).map(file => ({
-      file,
-      preview: URL.createObjectURL(file),
-      type: 'image' as const,
-    }));
-    setMediaFiles(prev => [...prev, ...newMedia].slice(0, 4));
+    if (!isSupabaseConfigured || !authUser) {
+      showToast('Sign in to attach photos or videos to a post.', 'error');
+      e.target.value = '';
+      return;
+    }
+    const availableSlots = 4 - mediaFiles.length;
+    if (files.length > availableSlots) showToast('A post can include up to four media files.', 'error');
+    const accepted: { file: File; preview: string; type: 'image' }[] = [];
+    for (const file of files) {
+      if (accepted.length >= availableSlots) break;
+      const validationError = validateImageFile(file, MAX_IMAGE_SIZE);
+      if (validationError) {
+        showToast(validationError, 'error');
+        continue;
+      }
+      accepted.push({ file, preview: createPreview(file), type: 'image' });
+    }
+    setMediaFiles(prev => [...prev, ...accepted]);
     e.target.value = '';
   };
 
   const handleVideoSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
-    if (files[0] && mediaFiles.length < 4) {
+    if (!isSupabaseConfigured || !authUser) {
+      showToast('Sign in to attach photos or videos to a post.', 'error');
+      e.target.value = '';
+      return;
+    }
+    if (files[0] && mediaFiles.length >= 4) {
+      showToast('A post can include up to four media files.', 'error');
+    } else if (files[0]) {
+      const validationError = validateVideoFile(files[0], MAX_VIDEO_SIZE);
+      if (validationError) {
+        showToast(validationError, 'error');
+        e.target.value = '';
+        return;
+      }
       setMediaFiles(prev => [...prev, {
         file: files[0],
-        preview: URL.createObjectURL(files[0]),
+        preview: createPreview(files[0]),
         type: 'video' as const,
       }].slice(0, 4));
     }
@@ -102,79 +167,10 @@ export default function PostComposer({ onPost }: PostComposerProps) {
     setMediaFiles(prev => {
       const updated = [...prev];
       URL.revokeObjectURL(updated[index].preview);
+      previewsRef.current.delete(updated[index].preview);
       updated.splice(index, 1);
       return updated;
     });
-  };
-
-  const handleEnhance = () => {
-    if (!content.trim()) return;
-    setAiEnhancing(true);
-
-    // Smart AI enhancement — actually rewrites the post
-    const text = content.trim();
-    const words = text.split(/\s+/);
-    const isShort = words.length < 8;
-    const isQuestion = text.endsWith('?');
-    const hasHashtag = /#\w+/.test(text);
-    const isAllCaps = text === text.toUpperCase() && text.length > 5;
-
-    setTimeout(() => {
-      let enhanced = text;
-
-      // Fix all-caps
-      if (isAllCaps) {
-        enhanced = text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
-      }
-
-      // Add hook to short posts
-      if (isShort && !isQuestion) {
-        const hooks = [
-          `Here's my take: ${enhanced}. What do you think?`,
-          `${enhanced} — and here's why it matters.`,
-          `Something I've been thinking about: ${enhanced}`,
-          `Hot take: ${enhanced}. Let's discuss.`,
-        ];
-        enhanced = hooks[Math.floor(Math.random() * hooks.length)];
-      }
-
-      // Enhance questions
-      if (isQuestion) {
-        const starters = [
-          `I'd love your perspective: ${enhanced}`,
-          `Genuine question for the community: ${enhanced}`,
-          `${enhanced}\n\nDrop your thoughts below 👇`,
-        ];
-        enhanced = starters[Math.floor(Math.random() * starters.length)];
-      }
-
-      // Add smart hashtags if none
-      if (!hasHashtag) {
-        const lower = text.toLowerCase();
-        const tagMap: Record<string, string[]> = {
-          'code|dev|programming|software|tech|api|bug|deploy': ['#TechTwitter', '#DevLife'],
-          'design|ui|ux|figma|css|pixel': ['#DesignInspo', '#UIUX'],
-          'ai|machine learning|gpt|neural|llm': ['#AI', '#FutureTech'],
-          'startup|business|launch|founder': ['#StartupLife', '#Entrepreneurship'],
-          'learn|study|course|tutorial|education': ['#Learning', '#GrowthMindset'],
-        };
-        for (const [pattern, tags] of Object.entries(tagMap)) {
-          if (new RegExp(pattern, 'i').test(lower)) {
-            enhanced += '\n\n' + tags.join(' ');
-            break;
-          }
-        }
-      }
-
-      // Ensure punctuation
-      const lastChar = enhanced.trim().slice(-1);
-      if (!/[.!?#]/.test(lastChar) && !hasHashtag) {
-        enhanced = enhanced.trim() + '.';
-      }
-
-      setContent(enhanced);
-      setAiEnhancing(false);
-    }, 1200);
   };
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -223,7 +219,7 @@ export default function PostComposer({ onPost }: PostComposerProps) {
               >
                 {mediaFiles.map((mf, i) => (
                   <motion.div
-                    key={i}
+                    key={mf.preview}
                     className={cn(
                       'relative group',
                       mediaFiles.length === 1 ? 'max-h-[400px]' : 'max-h-[200px]',
@@ -253,7 +249,9 @@ export default function PostComposer({ onPost }: PostComposerProps) {
                       </div>
                     )}
                     <motion.button
-                      className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/70 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      type="button"
+                      aria-label={`Remove ${mf.type}`}
+                      className="absolute top-2 right-2 w-11 h-11 rounded-full bg-black/70 text-white flex items-center justify-center"
                       onClick={() => removeMedia(i)}
                       whileTap={{ scale: 0.9 }}
                     >
@@ -265,54 +263,11 @@ export default function PostComposer({ onPost }: PostComposerProps) {
             )}
           </AnimatePresence>
 
-          {/* AI Enhancement Bar */}
-          <AnimatePresence>
-            {isFocused && content.length > 0 && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="flex items-center gap-2 py-2 border-t border-theme mt-2"
-              >
-                <motion.button
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-xbee-secondary/10 text-xbee-secondary hover:bg-xbee-secondary/20 transition-colors"
-                  onClick={handleEnhance}
-                  whileTap={{ scale: 0.95 }}
-                  disabled={aiEnhancing}
-                >
-                  {aiEnhancing ? (
-                    <div className="w-3 h-3 border-2 border-xbee-secondary border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Wand2 className="w-3 h-3" />
-                  )}
-                  {aiEnhancing ? 'Enhancing...' : 'Enhance Post'}
-                </motion.button>
-                <motion.button
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-xbee-primary/10 text-xbee-primary hover:bg-xbee-primary/20 transition-colors"
-                  onClick={() => {
-                    const suggestions = [
-                      "Just realized that the best code is the code you don't write. Simplicity wins every time. 🚀",
-                      "Hot take: Remote work isn't the future — async-first work is. Time zones don't matter when your docs are fire. 🔥",
-                      "3 things I learned shipping at scale:\n1. Start simple\n2. Measure everything\n3. Listen to your users, not your assumptions",
-                      "The difference between a junior and senior developer isn't years of experience — it's the ability to say 'I don't know, let me find out.'",
-                      "Building in public update: We just crossed 10K users organically. No ads, no growth hacks — just a product people actually want. ✨",
-                    ];
-                    setContent(suggestions[Math.floor(Math.random() * suggestions.length)]);
-                  }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Sparkles className="w-3 h-3" />
-                  Xbee AI
-                </motion.button>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
           {/* Hidden file inputs */}
           <input
             ref={imageInputRef}
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/webp,image/gif"
             multiple
             className="hidden"
             onChange={handleImageSelect}
@@ -320,7 +275,7 @@ export default function PostComposer({ onPost }: PostComposerProps) {
           <input
             ref={videoInputRef}
             type="file"
-            accept="video/*"
+            accept="video/mp4,video/webm,video/quicktime"
             className="hidden"
             onChange={handleVideoSelect}
           />
@@ -329,57 +284,35 @@ export default function PostComposer({ onPost }: PostComposerProps) {
           <div className="flex items-center justify-between mt-2">
             <div className="flex items-center gap-1 -ml-2">
               <motion.button
+                type="button"
                 className="p-2 rounded-full hover:bg-xbee-primary/10 transition-colors text-xbee-primary"
                 whileTap={{ scale: 0.9 }}
-                title="Upload Image"
+                aria-label="Add photos"
+                title="Add photos"
                 onClick={() => imageInputRef.current?.click()}
               >
                 <Image className="w-5 h-5" />
               </motion.button>
               <motion.button
+                type="button"
                 className="p-2 rounded-full hover:bg-xbee-primary/10 transition-colors text-xbee-primary"
                 whileTap={{ scale: 0.9 }}
-                title="Upload Video"
+                aria-label="Add video"
+                title="Add video"
                 onClick={() => videoInputRef.current?.click()}
               >
                 <Film className="w-5 h-5" />
               </motion.button>
-              {[
-                { icon: Mic, label: 'Voice', action: () => {
-                  if ('mediaDevices' in navigator) {
-                    setContent(prev => prev ? prev + ' 🎤 [Voice note attached]' : '🎤 [Voice note attached]');
-                  } else {
-                    setContent(prev => prev ? prev + ' 🎤 Voice message' : '🎤 Voice message');
-                  }
-                }},
-                { icon: BarChart3, label: 'Poll', action: () => { setShowPoll(!showPoll); setShowEmoji(false); } },
-                { icon: Smile, label: 'Emoji', action: () => { setShowEmoji(!showEmoji); setShowPoll(false); } },
-                { icon: MapPin, label: 'Location', action: () => {
-                  if ('geolocation' in navigator) {
-                    navigator.geolocation.getCurrentPosition(
-                      (pos) => {
-                        const loc = `📍 ${pos.coords.latitude.toFixed(2)}°, ${pos.coords.longitude.toFixed(2)}°`;
-                        setContent(prev => prev ? prev + ' ' + loc : loc);
-                      },
-                      () => {
-                        setContent(prev => prev ? prev + ' 📍 Location shared' : '📍 Location shared');
-                      }
-                    );
-                  } else {
-                    setContent(prev => prev ? prev + ' 📍 Location shared' : '📍 Location shared');
-                  }
-                }},
-              ].map(({ icon: Icon, label, action }) => (
-                <motion.button
-                  key={label}
-                  className="p-2 rounded-full hover:bg-xbee-primary/10 transition-colors text-xbee-primary"
-                  whileTap={{ scale: 0.9 }}
-                  title={label}
-                  onClick={action}
-                >
-                  <Icon className="w-5 h-5" />
-                </motion.button>
-              ))}
+              <motion.button
+                type="button"
+                className="p-2 rounded-full hover:bg-xbee-primary/10 transition-colors text-xbee-primary"
+                whileTap={{ scale: 0.9 }}
+                aria-label="Add emoji"
+                title="Add emoji"
+                onClick={() => setShowEmoji(!showEmoji)}
+              >
+                <Smile className="w-5 h-5" />
+              </motion.button>
             </div>
             <div className="flex items-center gap-3">
               {content.length > 0 && (
@@ -411,14 +344,14 @@ export default function PostComposer({ onPost }: PostComposerProps) {
               <motion.button
                 className={cn(
                   'xbee-button-primary py-2 px-5',
-                  (!content.trim() && mediaFiles.length === 0 || cooldownActive) && 'opacity-50 pointer-events-none'
+                  ((!content.trim() && mediaFiles.length === 0) || cooldownActive || isPosting) && 'opacity-50 pointer-events-none'
                 )}
                 onClick={handlePost}
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                disabled={(!content.trim() && mediaFiles.length === 0) || cooldownActive}
+                disabled={(!content.trim() && mediaFiles.length === 0) || cooldownActive || isPosting}
               >
-                {cooldownActive ? `Wait (${cooldownSeconds}s)` : 'Post'}
+                {isPosting ? 'Uploading…' : cooldownActive ? `Wait (${cooldownSeconds}s)` : 'Post'}
               </motion.button>
             </div>
           </div>
@@ -436,31 +369,6 @@ export default function PostComposer({ onPost }: PostComposerProps) {
             )}
           </AnimatePresence>
 
-          {/* Poll Creator */}
-          <AnimatePresence>
-            {showPoll && (
-              <motion.div className="py-2 border-t border-theme mt-1 space-y-2" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }}>
-                <p className="text-xs font-bold text-theme-secondary flex items-center gap-1"><BarChart3 className="w-3 h-3" /> Create Poll</p>
-                {pollOptions.map((opt, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <input className="xbee-input flex-1 py-1.5 text-sm" placeholder={`Option ${i + 1}`} value={opt} onChange={(e) => { const next = [...pollOptions]; next[i] = e.target.value; setPollOptions(next); }} maxLength={80} />
-                    {pollOptions.length > 2 && <button className="text-theme-tertiary hover:text-red-400" onClick={() => setPollOptions(pollOptions.filter((_, j) => j !== i))}><X className="w-4 h-4" /></button>}
-                  </div>
-                ))}
-                <div className="flex gap-2">
-                  {pollOptions.length < 4 && <button className="text-xs text-xbee-primary hover:underline" onClick={() => setPollOptions([...pollOptions, ''])}>+ Add option</button>}
-                  <button className="text-xs text-emerald-400 hover:underline ml-auto" onClick={() => {
-                    const validOpts = pollOptions.filter(o => o.trim());
-                    if (validOpts.length >= 2) {
-                      setContent(prev => prev + (prev ? '\n\n' : '') + '📊 Poll:\n' + validOpts.map((o, i) => `${['🔵','🟢','🟡','🟠'][i]} ${o}`).join('\n'));
-                      setShowPoll(false);
-                      setPollOptions(['', '']);
-                    }
-                  }}>Add to post</button>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </div>
       </div>
     </div>

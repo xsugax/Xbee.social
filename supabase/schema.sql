@@ -316,18 +316,8 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.follows;
 -- ============================================================
 -- 12. STORAGE BUCKETS
 -- ============================================================
--- Run these separately in the Supabase Dashboard > Storage
--- INSERT INTO storage.buckets (id, name, public) VALUES ('avatars', 'avatars', true);
--- INSERT INTO storage.buckets (id, name, public) VALUES ('media', 'media', true);
--- INSERT INTO storage.buckets (id, name, public) VALUES ('chat-images', 'chat-images', true);
-
--- Storage policies (run after creating buckets)
--- CREATE POLICY "Public avatar access" ON storage.objects FOR SELECT USING (bucket_id = 'avatars');
--- CREATE POLICY "Users can upload avatars" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'avatars' AND auth.uid()::text = (storage.foldername(name))[1]);
--- CREATE POLICY "Public media access" ON storage.objects FOR SELECT USING (bucket_id = 'media');
--- CREATE POLICY "Users can upload media" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'media' AND auth.role() = 'authenticated');
--- CREATE POLICY "Public chat image access" ON storage.objects FOR SELECT USING (bucket_id = 'chat-images');
--- CREATE POLICY "Users can upload chat images" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'chat-images' AND auth.role() = 'authenticated');
+-- Provision the public profile/post media buckets and owner-scoped upload policies
+-- by applying supabase/media_storage_migration.sql in the Supabase SQL Editor.
 
 -- ============================================================
 -- 13. HELPER FUNCTIONS

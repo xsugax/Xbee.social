@@ -18,6 +18,8 @@ import { useApp } from '@/context/AppContext';
 import { useAuth, profileToUser } from '@/context/AuthContext';
 import { getSupabase } from '@/lib/supabase';
 import { User } from '@/types';
+import { removeUserMedia, uploadUserMedia, validateImageFile } from '@/lib/mediaUpload';
+import { useToast } from '@/components/ui/Toast';
 
 type ProfileTab = 'posts' | 'replies' | 'media' | 'likes';
 
@@ -25,7 +27,8 @@ function ProfileContent() {
   const searchParams = useSearchParams();
   const userId = searchParams.get('user');
   const { currentUser, posts, updateProfile, getConnectionStatus, sendConnectionRequest, cancelConnectionRequest, acceptConnectionRequest, removeConnection, connectionRequests, following, followUser, unfollowUser, isVerifiedChange, addPostAsUser } = useApp();
-  const { isSupabaseConfigured } = useAuth();
+  const { isSupabaseConfigured, user: authUser } = useAuth();
+  const { showToast } = useToast();
   const [fetchedUser, setFetchedUser] = useState<User | null>(null);
   const [profilePosts, setProfilePosts] = useState<any[]>([]);
   const [isLoadingProfile, setIsLoadingProfile] = useState(false);
@@ -34,6 +37,7 @@ function ProfileContent() {
   const [copiedCode, setCopiedCode] = useState<string | null>(null);
   const [coverImage, setCoverImage] = useState<string | null>(null);
   const [avatarImage, setAvatarImage] = useState<string | null>(null);
+  const [uploadingProfileImage, setUploadingProfileImage] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editName, setEditName] = useState('');
   const [editUsername, setEditUsername] = useState('');
@@ -90,9 +94,6 @@ function ProfileContent() {
   const isPendingSent = connStatus === 'pending_sent';
   const isPendingReceived = connStatus === 'pending_received';
   const isFollowing = displayUser ? following.has(displayUser.id) : false;
-  const coverKey = 'xbee_cover_' + currentUser.id;
-  const avatarKey = 'xbee_avatar_' + currentUser.id;
-
   // Find the request ID for this user if pending_received
   const pendingRequestId = useMemo(() => {
     if (!displayUser || !isPendingReceived) return null;
@@ -112,13 +113,13 @@ function ProfileContent() {
   useEffect(() => {
     if (!displayUser) return;
     if (isOwnProfile) {
-      try { setCoverImage(localStorage.getItem(coverKey)); } catch { setCoverImage(null); }
-      try { setAvatarImage(localStorage.getItem(avatarKey) || displayUser.avatar || null); } catch { setAvatarImage(displayUser.avatar || null); }
+      setCoverImage(displayUser.coverImage || null);
+      setAvatarImage(displayUser.avatar || null);
     } else {
       setCoverImage(null);
       setAvatarImage(displayUser.avatar || null);
     }
-  }, [displayUser, isOwnProfile, coverKey, avatarKey]);
+  }, [displayUser, isOwnProfile]);
 
   const effectiveCoverImage = isOwnProfile ? coverImage : (displayUser?.coverImage || null);
 
@@ -154,33 +155,74 @@ function ProfileContent() {
     setTimeout(() => setCopiedCode(null), 2000);
   };
 
-  const handleCoverUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCoverUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        const base64 = evt.target?.result as string;
-        setCoverImage(base64);
-        try { localStorage.setItem(coverKey, base64); } catch {}
-      };
-      reader.readAsDataURL(file);
-    }
     e.target.value = '';
+    if (!file) return;
+    const validationError = validateImageFile(file, 8 * 1024 * 1024);
+    if (validationError) {
+      showToast(validationError, 'error');
+      return;
+    }
+    if (!isSupabaseConfigured || !authUser) {
+      showToast('Sign in to upload a profile cover.', 'error');
+      return;
+    }
+    setUploadingProfileImage(true);
+    let uploadedUrl: string | null = null;
+    try {
+      uploadedUrl = await uploadUserMedia('profile-media', authUser.id, file, 'covers');
+      if (!await updateProfile({ coverImage: uploadedUrl })) {
+        await removeUserMedia('profile-media', uploadedUrl);
+        showToast('Your cover could not be saved to your profile.', 'error');
+        return;
+      }
+      setCoverImage(uploadedUrl);
+    } catch (error) {
+      console.error('Failed to upload profile cover:', error);
+      if (uploadedUrl) {
+        try { await removeUserMedia('profile-media', uploadedUrl); }
+        catch (cleanupError) { console.error('Failed to clean up an unsaved profile cover:', cleanupError); }
+      }
+      showToast(error instanceof Error ? error.message : 'Your cover could not be uploaded.', 'error');
+    } finally {
+      setUploadingProfileImage(false);
+    }
   };
 
-  const handleAvatarUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = (evt) => {
-        const base64 = evt.target?.result as string;
-        setAvatarImage(base64);
-        updateProfile({ avatar: base64 });
-        try { localStorage.setItem(avatarKey, base64); } catch {}
-      };
-      reader.readAsDataURL(file);
-    }
     e.target.value = '';
+    if (!file) return;
+    const validationError = validateImageFile(file, 5 * 1024 * 1024);
+    if (validationError) {
+      showToast(validationError, 'error');
+      return;
+    }
+    if (!isSupabaseConfigured || !authUser) {
+      showToast('Sign in to upload a profile photo.', 'error');
+      return;
+    }
+    setUploadingProfileImage(true);
+    let uploadedUrl: string | null = null;
+    try {
+      uploadedUrl = await uploadUserMedia('profile-media', authUser.id, file, 'avatars');
+      if (!await updateProfile({ avatar: uploadedUrl })) {
+        await removeUserMedia('profile-media', uploadedUrl);
+        showToast('Your photo could not be saved to your profile.', 'error');
+        return;
+      }
+      setAvatarImage(uploadedUrl);
+    } catch (error) {
+      console.error('Failed to upload profile photo:', error);
+      if (uploadedUrl) {
+        try { await removeUserMedia('profile-media', uploadedUrl); }
+        catch (cleanupError) { console.error('Failed to clean up an unsaved profile photo:', cleanupError); }
+      }
+      showToast(error instanceof Error ? error.message : 'Your photo could not be uploaded.', 'error');
+    } finally {
+      setUploadingProfileImage(false);
+    }
   };
 
   if (isLoadingProfile) {
@@ -194,7 +236,7 @@ function ProfileContent() {
   return (
     <div>
       {!isOwnProfile && (
-        <div className="sticky top-0 z-30 glass flex items-center gap-4 px-4 py-2.5 border-b border-theme">
+        <div className="sticky top-0 z-30 glass flex items-center gap-4 px-4 py-2.5 border-b border-theme max-lg:top-[calc(3.25rem+env(safe-area-inset-top))]">
           <Link href="/">
             <motion.button className="p-1.5 rounded-full hover:bg-theme-hover transition-colors" whileTap={{ scale: 0.9 }}>
               <ArrowLeft className="w-5 h-5 text-theme-primary" />
@@ -208,16 +250,18 @@ function ProfileContent() {
       )}
 
       {/* Banner */}
-      <div className={cn('relative h-48 bg-gradient-to-r from-xbee-primary via-xbee-secondary to-xbee-accent group', isOwnProfile && 'cursor-pointer')}
-        onClick={() => isOwnProfile && coverInputRef.current?.click()}>
+      <div className={cn('relative h-48 bg-theme-hover group', isOwnProfile && 'cursor-pointer')}
+        onClick={() => isOwnProfile && !uploadingProfileImage && coverInputRef.current?.click()}>
         {effectiveCoverImage && <img src={effectiveCoverImage} alt="" className="absolute inset-0 w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />}
         <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors" />
         {isOwnProfile && (
           <>
-            <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-              <div className="p-3 rounded-full bg-black/60 text-white"><Camera className="w-6 h-6" /></div>
+            <div className="absolute inset-0 flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+              <div className="p-3 rounded-full bg-black/60 text-white flex items-center gap-2">
+                <Camera className="w-5 h-5" /><span className="text-sm">{uploadingProfileImage ? 'Uploading…' : 'Change cover'}</span>
+              </div>
             </div>
-            <input ref={coverInputRef} type="file" accept="image/*" className="hidden" onChange={handleCoverUpload} />
+            <input ref={coverInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleCoverUpload} />
           </>
         )}
       </div>
@@ -226,14 +270,14 @@ function ProfileContent() {
       <div className="px-4 pb-4 relative">
         <div className="flex items-end justify-between -mt-16 mb-3">
           <div className={cn('border-4 border-theme-primary rounded-full relative group', isOwnProfile && 'cursor-pointer')}
-            onClick={() => isOwnProfile && avatarInputRef.current?.click()}>
+            onClick={() => isOwnProfile && !uploadingProfileImage && avatarInputRef.current?.click()}>
             <Avatar name={displayUser.displayName} src={avatarImage || displayUser.avatar || undefined} size="xl" />
             {isOwnProfile && (
               <>
-                <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute inset-0 rounded-full bg-black/40 flex items-center justify-center opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                   <Camera className="w-5 h-5 text-white" />
                 </div>
-                <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+                <input ref={avatarInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={handleAvatarUpload} />
               </>
             )}
           </div>
@@ -472,15 +516,15 @@ function ProfileContent() {
                 {editError && <p className="text-xs text-red-400 text-center">{editError}</p>}
                 <motion.button className="w-full py-2.5 rounded-full bg-xbee-primary text-white font-bold text-sm hover:bg-xbee-primary/90 transition-colors"
                   whileTap={{ scale: 0.97 }}
-                  onClick={() => {
+                  onClick={async () => {
                     setEditError('');
-                    const success = updateProfile({
+                    const success = await updateProfile({
                       displayName: editName.trim() || currentUser.displayName,
                       username: editUsername.trim() || currentUser.username,
                       bio: editBio.trim(),
                     });
                     if (success) setShowEditModal(false);
-                    else setEditError('Username is already taken. Please choose another.');
+                    else setEditError('Could not save your profile. Check that the username is available and try again.');
                   }}>
                   Save Changes
                 </motion.button>

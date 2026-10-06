@@ -13,7 +13,7 @@ export default function BookmarksPage() {
 
   return (
     <div>
-      <div className="sticky top-0 z-30 glass border-b border-theme px-4 py-3">
+      <div className="sticky top-0 z-30 glass border-b border-theme px-4 py-3 max-lg:top-[calc(3.25rem+env(safe-area-inset-top))]">
         <h1 className="text-xl font-bold text-theme-primary">Bookmarks</h1>
         <p className="text-xs text-theme-tertiary mt-0.5">{bookmarkedPosts.length} saved posts</p>
       </div>

@@ -191,7 +191,7 @@ export default function CommunitiesPage() {
         </div>
       )}
       {!loading && (<>
-      <div className="sticky top-0 z-30 glass">
+      <div className="sticky top-0 z-30 glass max-lg:top-[calc(3.25rem+env(safe-area-inset-top))]">
         <div className="flex items-center justify-between px-4 py-3">
           <h1 className="text-xl font-bold text-theme-primary">Communities</h1>
           <div className="flex items-center gap-2">

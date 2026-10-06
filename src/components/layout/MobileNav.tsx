@@ -10,8 +10,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
-import Avatar from '@/components/ui/Avatar';
-import AccountSwitcher from '@/components/layout/AccountSwitcher';
+import PostComposer from '@/components/feed/PostComposer';
 
 const mobileNavItems = [
   { href: '/', label: 'Home', icon: Home },
@@ -39,7 +38,6 @@ export default function MobileNav() {
   const msgUnread = conversations.reduce((sum, c) => sum + (c.unreadCount || 0), 0);
   const [showCompose, setShowCompose] = useState(false);
   const [showDrawer, setShowDrawer] = useState(false);
-  const [composeText, setComposeText] = useState('');
 
   const [showMobileSearch, setShowMobileSearch] = useState(false);
   const [mobileSearchQuery, setMobileSearchQuery] = useState('');
@@ -59,10 +57,8 @@ export default function MobileNav() {
     }
   };
 
-  const handlePost = () => {
-    if (!composeText.trim()) return;
-    addPost(composeText);
-    setComposeText('');
+  const handleComposePost = async (content: string, media?: import('@/types').MediaAttachment[]) => {
+    await addPost(content, media);
     setShowCompose(false);
     if (pathname !== '/') router.push('/');
   };
@@ -70,10 +66,10 @@ export default function MobileNav() {
   return (
     <>
       {/* Top bar with hamburger menu + search */}
-      <div className="fixed top-0 left-0 right-0 z-50 glass border-b border-theme lg:hidden">
+      <div className="fixed top-0 left-0 right-0 z-50 glass border-b border-theme pt-[env(safe-area-inset-top)] lg:hidden">
         {showMobileSearch ? (
-          <div className="flex items-center gap-2 px-3 py-2">
-            <button className="p-1.5 rounded-lg hover:bg-theme-hover" onClick={() => { setShowMobileSearch(false); setMobileSearchQuery(''); }}>
+          <div className="flex items-center gap-2 px-3 py-1">
+            <button className="min-h-11 min-w-11 rounded-lg hover:bg-theme-hover" aria-label="Close search" onClick={() => { setShowMobileSearch(false); setMobileSearchQuery(''); }}>
               <ArrowLeft className="w-5 h-5 text-theme-primary" />
             </button>
             <input
@@ -87,9 +83,10 @@ export default function MobileNav() {
             />
           </div>
         ) : (
-          <div className="flex items-center justify-between px-4 py-2">
+          <div className="flex items-center justify-between px-4 py-1">
             <motion.button
-              className="p-2 rounded-lg hover:bg-theme-hover transition-colors"
+              className="min-h-11 min-w-11 rounded-lg hover:bg-theme-hover transition-colors"
+              aria-label="Open navigation menu"
               onClick={() => setShowDrawer(true)}
               whileTap={{ scale: 0.9 }}
             >
@@ -105,7 +102,7 @@ export default function MobileNav() {
             </div>
             <div className="flex items-center gap-1">
               {/* Search toggle */}
-              <button className="p-2 rounded-lg hover:bg-theme-hover" onClick={() => setShowMobileSearch(true)}>
+              <button className="min-h-11 min-w-11 rounded-lg hover:bg-theme-hover" onClick={() => setShowMobileSearch(true)} aria-label="Search">
                 <Search className="w-5 h-5 text-theme-secondary" />
               </button>
               {/* Notification badge small */}
@@ -133,7 +130,7 @@ export default function MobileNav() {
             onClick={() => setShowDrawer(false)}
           >
             <motion.div
-              className="absolute left-0 top-0 bottom-0 w-[280px] bg-theme-primary border-r border-theme overflow-y-auto"
+              className="absolute left-0 top-0 bottom-0 w-[280px] bg-theme-primary border-r border-theme overflow-y-auto pt-[env(safe-area-inset-top)]"
               initial={{ x: -280 }}
               animate={{ x: 0 }}
               exit={{ x: -280 }}
@@ -207,8 +204,9 @@ export default function MobileNav() {
 
       {/* Mobile Compose FAB */}
       <motion.button
-        className="fixed bottom-20 right-4 z-50 w-14 h-14 rounded-full bg-xbee-primary text-white shadow-lg shadow-xbee-primary/30 flex items-center justify-center lg:hidden"
+        className="fixed bottom-[calc(5.25rem+env(safe-area-inset-bottom))] right-4 z-50 w-14 h-14 rounded-full bg-xbee-primary text-white shadow-lg shadow-xbee-primary/30 flex items-center justify-center lg:hidden"
         onClick={() => setShowCompose(true)}
+        aria-label="Create a post"
         whileHover={{ scale: 1.1 }}
         whileTap={{ scale: 0.9 }}
       >
@@ -219,48 +217,39 @@ export default function MobileNav() {
       <AnimatePresence>
         {showCompose && (
           <motion.div className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-sm flex items-start justify-center pt-[8vh] p-4 lg:hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setShowCompose(false)}>
-            <motion.div className="glass-card w-full max-w-lg" initial={{ scale: 0.95, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: -20 }} onClick={(e) => e.stopPropagation()}>
+            <motion.div className="glass-card w-full max-w-lg max-h-[84dvh] overflow-y-auto" initial={{ scale: 0.95, y: -20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: -20 }} onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between px-4 py-3 border-b border-theme">
-                <button className="p-1.5 rounded-full hover:bg-theme-hover" onClick={() => setShowCompose(false)}><X className="w-5 h-5 text-theme-secondary" /></button>
-                <motion.button className={cn('xbee-button-primary py-2 px-5 text-sm', !composeText.trim() && 'opacity-50 pointer-events-none')} onClick={handlePost} whileTap={{ scale: 0.95 }} disabled={!composeText.trim()}>Post</motion.button>
+                <span className="text-sm font-semibold text-theme-primary">Create post</span>
+                <button className="min-h-11 min-w-11 rounded-full hover:bg-theme-hover flex items-center justify-center" aria-label="Close composer" onClick={() => setShowCompose(false)}><X className="w-5 h-5 text-theme-secondary" /></button>
               </div>
-              <div className="p-4">
-                <div className="flex gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-xbee-primary to-xbee-secondary flex items-center justify-center text-white font-bold text-sm shrink-0 overflow-hidden">
-                    {currentUser.avatar ? <img src={currentUser.avatar} alt="" className="w-full h-full object-cover" referrerPolicy="no-referrer" /> : currentUser.displayName.charAt(0)}
-                  </div>
-                  <textarea value={composeText} onChange={(e) => setComposeText(e.target.value)} placeholder="What's buzzing?" className="flex-1 bg-transparent text-theme-primary text-lg placeholder:text-theme-tertiary resize-none outline-none min-h-[120px]" autoFocus maxLength={25000} />
-                </div>
-              </div>
+              <PostComposer onPost={handleComposePost} />
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
       {/* Bottom nav bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 glass border-t border-theme lg:hidden">
-        <div className="flex items-center justify-around py-2 px-2">
+      <nav aria-label="Mobile navigation" className="fixed bottom-0 left-0 right-0 z-50 glass border-t border-theme pb-[calc(0.5rem+env(safe-area-inset-bottom))] lg:hidden">
+        <div className="flex items-center justify-around px-1 pt-1">
           {mobileNavItems.map((item) => {
             const isActive = pathname === item.href;
             const Icon = item.icon;
             return (
-              <Link key={item.href} href={item.href} className="relative p-3">
+              <Link key={item.href} href={item.href} aria-label={item.label} aria-current={isActive ? 'page' : undefined} className={cn('relative flex min-h-12 min-w-[64px] flex-col items-center justify-center gap-0.5 rounded-xl px-2 py-1', isActive && 'bg-xbee-primary/10')}>
                 <Icon
-                  className={cn('w-6 h-6 transition-colors', isActive ? 'text-xbee-primary' : 'text-theme-secondary')}
+                  className={cn('w-5 h-5 transition-colors', isActive ? 'text-xbee-primary' : 'text-theme-secondary')}
                   strokeWidth={isActive ? 2.5 : 1.5}
                 />
+                <span className={cn('text-[10px] leading-3', isActive ? 'font-semibold text-xbee-primary' : 'text-theme-secondary')}>{item.label}</span>
                 {item.badgeKey === 'notifications' && unreadCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 min-w-[16px] h-[16px] bg-xbee-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center px-0.5">{unreadCount}</span>
+                  <span className="absolute top-0.5 left-[calc(50%+4px)] min-w-[16px] h-[16px] bg-xbee-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center px-0.5">{unreadCount}</span>
                 )}
                 {item.badgeKey === 'messages' && msgUnread > 0 && (
-                  <span className="absolute top-1.5 right-1.5 min-w-[16px] h-[16px] bg-xbee-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center px-0.5">{msgUnread}</span>
+                  <span className="absolute top-0.5 left-[calc(50%+4px)] min-w-[16px] h-[16px] bg-xbee-primary text-white text-[10px] font-bold rounded-full flex items-center justify-center px-0.5">{msgUnread}</span>
                 )}
               </Link>
             );
           })}
-          <div className="relative p-1">
-            <AccountSwitcher compact />
-          </div>
         </div>
       </nav>
     </>

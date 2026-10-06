@@ -90,7 +90,7 @@ export default function ExplorePage() {
   return (
     <div>
       {/* Header */}
-      <div className="sticky top-0 z-30 glass">
+      <div className="sticky top-0 z-30 glass max-lg:top-[calc(3.25rem+env(safe-area-inset-top))]">
         <div className="px-4 py-3">
           <div className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-theme-tertiary" />

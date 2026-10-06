@@ -1,6 +1,6 @@
 ﻿'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
 import { User, Post, Conversation, Message, Notification, ConnectionStatus, ConnectionRequest, MessageRequest } from '@/types';
 import { currentUser as defaultUser, mockPosts, mockConversations, mockMessages, mockScamMessages, mockUsers, mockNotifications } from '@/lib/mockData';
 import { generateId } from '@/lib/utils';
@@ -32,10 +32,12 @@ const hasSupabaseEnv = !!(
 
 interface AppState {
   currentUser: User;
-  updateProfile: (updates: Partial<User>) => boolean;
+  updateProfile: (updates: Partial<User>) => Promise<boolean>;
+  notificationsEnabled: boolean;
+  setNotificationsEnabled: (enabled: boolean) => void;
 
   posts: Post[];
-  addPost: (content: string, media?: Post['media']) => void;
+  addPost: (content: string, media?: Post['media']) => Promise<void>;
   likePost: (postId: string) => void;
   repostPost: (postId: string) => void;
   bookmarkPost: (postId: string) => void;
@@ -148,6 +150,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try { const saved = localStorage.getItem('xbee_notifications'); if (saved) return JSON.parse(saved); } catch {}
     return mockNotifications;
   });
+  const notificationPreferenceKey = `xbee_live_notifications_${authUser?.id || 'local'}`;
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [allUsers, setAllUsers] = useState<User[]>(() => {
@@ -155,6 +158,37 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     try { const saved = localStorage.getItem('xbee_system_users'); if (saved) return JSON.parse(saved); } catch {}
     return [defaultUser, ...mockUsers];
   });
+
+  const subscribeToNotificationPreference = useCallback((onChange: () => void) => {
+    const onStorageChange = (event: StorageEvent) => {
+      if (event.key === notificationPreferenceKey) onChange();
+    };
+    window.addEventListener('storage', onStorageChange);
+    window.addEventListener('xbee-notifications-preference', onChange);
+    return () => {
+      window.removeEventListener('storage', onStorageChange);
+      window.removeEventListener('xbee-notifications-preference', onChange);
+    };
+  }, [notificationPreferenceKey]);
+  const readNotificationPreference = useCallback(() => {
+    const saved = localStorage.getItem(notificationPreferenceKey);
+    return saved === null ? true : saved === 'true';
+  }, [notificationPreferenceKey]);
+  const notificationsEnabled = useSyncExternalStore(
+    subscribeToNotificationPreference,
+    readNotificationPreference,
+    () => true,
+  );
+
+  const setNotificationsEnabled = useCallback((enabled: boolean) => {
+    try {
+      localStorage.setItem(notificationPreferenceKey, String(enabled));
+      window.dispatchEvent(new Event('xbee-notifications-preference'));
+    } catch (error) {
+      console.error('Failed to save notification preference:', error);
+      showToast('Could not save your notification preference on this device.', 'error');
+    }
+  }, [notificationPreferenceKey, showToast]);
 
   // Connection state
   const [connections, setConnections] = useState<Set<string>>(() => {
@@ -697,7 +731,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [isLive, isLoadingMorePosts, hasMorePosts, posts, currentUser, authUser]);
 
   // ========== ACTIONS ==========
-  const updateProfile = useCallback((updates: Partial<User>): boolean => {
+  const updateProfile = useCallback(async (updates: Partial<User>): Promise<boolean> => {
     if (updates.username) {
       const taken = allUsers.some(u => u.username.toLowerCase() === updates.username!.toLowerCase() && u.id !== currentUser.id);
       if (taken) return false;
@@ -709,23 +743,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (updates.username) dbUpdates.username = updates.username;
       if (updates.bio !== undefined) dbUpdates.bio = updates.bio;
       if (updates.avatar) dbUpdates.avatar = updates.avatar;
-      supabase.from('profiles').update(dbUpdates).eq('id', authUser?.id || '').then(() => {});
+      if (updates.coverImage !== undefined) dbUpdates.cover_image = updates.coverImage;
+      if (Object.keys(dbUpdates).length > 0) {
+        try {
+          const { error } = await supabase.from('profiles').update(dbUpdates).eq('id', authUser?.id || '');
+          if (error) throw error;
+        } catch (error) {
+          console.error('Failed to save profile changes:', error);
+          showToast('Your profile changes could not be saved. Please try again.', 'error');
+          return false;
+        }
+      }
     }
     setCurrentUser(prev => {
       const updated = { ...prev, ...updates };
       if (!isLive) {
-        try { localStorage.setItem('xbee_profile', JSON.stringify({ displayName: updated.displayName, username: updated.username, bio: updated.bio, avatar: updated.avatar })); } catch {}
+        try { localStorage.setItem('xbee_profile', JSON.stringify({ displayName: updated.displayName, username: updated.username, bio: updated.bio, avatar: updated.avatar, coverImage: updated.coverImage })); } catch {}
       }
       setPosts(prevPosts => prevPosts.map(p => p.author.id === prev.id ? { ...p, author: updated } : p));
       return updated;
     });
     return true;
-  }, [currentUser.id, isLive, authUser, allUsers]);
+  }, [currentUser.id, isLive, authUser, allUsers, showToast]);
 
   const addPost = useCallback(async (content: string, media?: Post['media']) => {
     if (isLive) {
       const supabase = getSupabase();
-      await supabase.from('posts').insert({ author_id: authUser?.id || '', content, media: media ? JSON.parse(JSON.stringify(media)) : [] });
+      const { error } = await supabase.from('posts').insert({ author_id: authUser?.id || '', content, media: media ? JSON.parse(JSON.stringify(media)) : [] });
+      if (error) throw new Error(`Post could not be published: ${error.message}`);
     } else {
       const newPost: Post = {
         id: generateId(), author: currentUser, content, media,
@@ -1054,22 +1099,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Supabase: Load notifications
   useEffect(() => {
-    if (!isLive) return;
+    if (!isLive || !authUser) return;
+    const notificationUserId = authUser.id;
     const supabase = getSupabase();
     async function loadNotifications() {
-      const { data } = await supabase.from('notifications').select('*, actor:profiles!notifications_actor_id_fkey(*)').eq('user_id', authUser?.id || '').order('created_at', { ascending: false }).limit(50) as unknown as { data: NotifWithActor[] | null };
+      const { data, error } = await supabase.from('notifications').select('*, actor:profiles!notifications_actor_id_fkey(*)').eq('user_id', notificationUserId).order('created_at', { ascending: false }).limit(50) as unknown as { data: NotifWithActor[] | null; error: { message: string } | null };
+      if (error) {
+        console.error('Failed to load notifications:', error.message);
+        showToast('Notifications could not be loaded. Please try again.', 'error');
+        return;
+      }
       if (data) {
         const appNotifs: Notification[] = data.map(n => ({ id: n.id, type: n.type as any, actor: n.actor ? profileToUser(n.actor) : currentUser, content: n.content, postId: n.post_id || undefined, read: n.read, createdAt: n.created_at }));
         setNotifications(appNotifs);
       }
     }
-    loadNotifications();
-    const channel = supabase.channel('notifications-realtime').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${authUser?.id || ''}` }, async (payload) => {
-      const { data: full } = await supabase.from('notifications').select('*, actor:profiles!notifications_actor_id_fkey(*)').eq('id', payload.new.id).single() as unknown as { data: NotifWithActor | null };
-      if (full) { const notif: Notification = { id: full.id, type: full.type as any, actor: full.actor ? profileToUser(full.actor) : currentUser, content: full.content, postId: full.post_id || undefined, read: full.read, createdAt: full.created_at }; setNotifications(prev => [notif, ...prev]); }
-    }).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [isLive, authUser, currentUser]);
+    void loadNotifications().catch(error => {
+      console.error('Failed to load notifications:', error);
+      showToast('Notifications could not be loaded. Please try again.', 'error');
+    });
+    if (!notificationsEnabled) return;
+
+    const channel = supabase.channel(`notifications-${notificationUserId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${notificationUserId}` }, async (payload) => {
+        try {
+          const { data: full, error } = await supabase.from('notifications').select('*, actor:profiles!notifications_actor_id_fkey(*)').eq('id', payload.new.id).single() as unknown as { data: NotifWithActor | null; error: { message: string } | null };
+          if (error) throw new Error(error.message);
+          if (!full) return;
+
+          const settings = JSON.parse(localStorage.getItem('xbee_settings') || '{}') as Record<string, boolean>;
+          const preferenceByType: Record<string, string> = {
+            like: 'notifLikes',
+            comment: 'notifComments',
+            reply: 'notifComments',
+            follow: 'notifFollows',
+            message: 'notifMessages',
+          };
+          const preference = preferenceByType[full.type];
+          if (preference && settings[preference] === false) return;
+
+          const notif: Notification = { id: full.id, type: full.type as any, actor: full.actor ? profileToUser(full.actor) : currentUser, content: full.content, postId: full.post_id || undefined, read: full.read, createdAt: full.created_at };
+          setNotifications(prev => prev.some(item => item.id === notif.id) ? prev : [notif, ...prev]);
+        } catch (error) {
+          console.error('Failed to receive a live notification:', error);
+          showToast('A new notification could not be displayed.', 'error');
+        }
+      })
+      .subscribe(status => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error(`Notification realtime subscription failed: ${status}`);
+          showToast('Live notifications are temporarily unavailable.', 'error');
+        }
+      });
+    return () => { void supabase.removeChannel(channel); };
+  }, [isLive, authUser, currentUser, notificationsEnabled, showToast]);
 
   // Local persistence
   useEffect(() => { if (isLive) return; try { localStorage.setItem('xbee_posts', JSON.stringify(posts.slice(0, 100))); } catch {} }, [posts, isLive]);
@@ -1089,7 +1172,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <AppContext.Provider value={{
-      currentUser, updateProfile,
+      currentUser, updateProfile, notificationsEnabled, setNotificationsEnabled,
       posts, addPost, likePost, repostPost, bookmarkPost, voteOnPoll, viewPost,
       loadMorePosts, hasMorePosts, isLoadingMorePosts,
 

@@ -16,6 +16,7 @@ import { cn, formatTimeAgo } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import { useAuth } from '@/context/AuthContext';
 import { getSupabase } from '@/lib/supabase';
+import { useToast } from '@/components/ui/Toast';
 import Link from 'next/link';
 
 interface ChatWindowProps {
@@ -34,6 +35,7 @@ const GHOST_TIMERS = [
 export default function ChatWindow({ otherUser, conversation, onBack }: ChatWindowProps) {
   const { currentUser, getMessages, sendMessage: sendGlobalMsg, addReply, loadConversations } = useApp();
   const { isSupabaseConfigured, user: authUser } = useAuth();
+  const { showToast } = useToast();
   const isLive = isSupabaseConfigured && !!authUser;
   const convId = conversation?.id || '';
   const messages = getMessages(convId);
@@ -78,7 +80,8 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
         if (typingTimeout.current) clearTimeout(typingTimeout.current);
         typingTimeout.current = setTimeout(() => setRemoteTyping(false), 3000);
       })
-      .on('broadcast', { event: 'typing_stop' }, () => {
+      .on('broadcast', { event: 'typing_stop' }, (payload) => {
+        if (payload.payload?.userId !== otherUser.id) return;
         setRemoteTyping(false);
         if (typingTimeout.current) clearTimeout(typingTimeout.current);
       })
@@ -100,7 +103,9 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
       try {
         const { data } = await supabase.from('profiles').select('is_online').eq('id', otherUser.id).single();
         if (data) setOtherUserOnline(data.is_online);
-      } catch {}
+      } catch (error) {
+        console.error('Failed to load online status:', error);
+      }
     })();
 
     return () => {
@@ -113,19 +118,18 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
   const typingStopTimerRef = useRef<NodeJS.Timeout | null>(null);
   const sendTypingIndicator = useCallback(() => {
     if (!isLive || !convId) return;
-    const supabase = getSupabase();
-    void supabase.channel(`typing-${convId}`).send({
+    void typingChannelRef.current?.send({
       type: 'broadcast',
       event: 'typing',
-      payload: { userId: authUser!.id },
+      payload: { userId: authUser?.id },
     });
     // Schedule typing_stop after 2s
     if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
     typingStopTimerRef.current = setTimeout(() => {
-      void supabase.channel(`typing-${convId}`).send({
+      void typingChannelRef.current?.send({
         type: 'broadcast',
         event: 'typing_stop',
-        payload: { userId: authUser!.id },
+        payload: { userId: authUser?.id },
       });
     }, 2000);
   }, [isLive, convId, authUser]);
@@ -178,7 +182,10 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
     setIsRecording(false);
     if (recordInterval.current) clearInterval(recordInterval.current);
     if (send && recordTime > 0) {
-      sendGlobalMsg(convId, `🎤 Voice message (${recordTime}s)`);
+      void sendGlobalMsg(convId, `🎤 Voice message (${recordTime}s)`).catch(error => {
+        console.error('Failed to send voice message:', error);
+        showToast('Voice message could not be sent. Please try again.', 'error');
+      });
     }
     setRecordTime(0);
   };
@@ -188,6 +195,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
     return () => {
       if (recordInterval.current) clearInterval(recordInterval.current);
       if (typingTimeout.current) clearTimeout(typingTimeout.current);
+      if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
     };
   }, []);
 
@@ -201,7 +209,10 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
         const reader = new FileReader();
         reader.onload = () => {
           const base64 = reader.result as string;
-          sendGlobalMsg(convId, `📷 [image:${base64}]`);
+          void sendGlobalMsg(convId, `📷 [image:${base64}]`).catch(error => {
+            console.error('Failed to send image:', error);
+            showToast('Image could not be sent. Please try again.', 'error');
+          });
         };
         reader.readAsDataURL(file);
       }
@@ -209,12 +220,18 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
     fileInput.click();
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim()) return;
 
     const ghostConfig = ghostMode ? { enabled: true, expiresIn: ghostTimer } : undefined;
-    sendGlobalMsg(convId, input, ghostConfig);
     const sentInput = input;
+    try {
+      await sendGlobalMsg(convId, input, ghostConfig);
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      showToast('Message could not be sent. Please try again.', 'error');
+      return;
+    }
     setInput('');
 
     // Refresh conversation list to reflect new lastMessage
@@ -280,11 +297,13 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
     if (isLive) {
       try {
         const supabase = getSupabase();
-        await supabase.from('messages').delete().eq('conversation_id', convId);
+        const { error } = await supabase.from('messages').delete().eq('conversation_id', convId);
+        if (error) throw error;
         // Reload conversations to reflect cleared state
         await loadConversations();
       } catch (e) {
         console.error('Failed to clear chat:', e);
+        showToast('Could not clear this chat. Please try again.', 'error');
       }
     } else {
       // In mock mode, clear all messages for this conversation
@@ -344,7 +363,7 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
                 {remoteTyping ? 'Typing...' : (otherUserOnline || !isLive) ? 'Online' : 'Offline'}
               </span>
               <Shield className="w-3 h-3 text-xbee-success" />
-              <span className="text-xs text-xbee-success">Encrypted</span>
+              <span className="text-xs text-xbee-success">Private chat</span>
               {isHighRisk && (
                 <>
                   <span className="text-xs text-orange-400">•</span>
@@ -729,16 +748,15 @@ export default function ChatWindow({ otherUser, conversation, onBack }: ChatWind
                 setInput(e.target.value);
                 // Send typing indicator with debounce
                 if (isLive && e.target.value) {
-                  if (typingTimeout.current) clearTimeout(typingTimeout.current);
+                  if (typingStopTimerRef.current) clearTimeout(typingStopTimerRef.current);
                   sendTypingIndicator();
                   // Auto-stop typing after 2s of inactivity
-                  typingTimeout.current = setTimeout(() => {
+                  typingStopTimerRef.current = setTimeout(() => {
                     if (isLive && convId) {
-                      const supabase = getSupabase();
-                      supabase.channel(`typing-${convId}`).send({
+                      typingChannelRef.current?.send({
                         type: 'broadcast',
                         event: 'typing_stop',
-                        payload: { userId: authUser!.id },
+                        payload: { userId: authUser?.id },
                       });
                     }
                   }, 2000);

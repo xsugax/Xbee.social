@@ -25,7 +25,11 @@ const AuthContext = createContext<AuthState | null>(null);
 const validTiers = ['new', 'building', 'established', 'trusted', 'authority', 'diamond', 'legendary'];
 const validVerifications = ['none', 'identity', 'authority', 'government', 'business', 'celebrity', 'creator', 'official'];
 
-function profileToUser(profile: Profile): User {
+function profileToUser(profile: Pick<Profile,
+  'id' | 'username' | 'display_name' | 'avatar' | 'cover_image' | 'bio' | 'verified' |
+  'verification' | 'trust_score' | 'trust_tier' | 'created_at' | 'updated_at' |
+  'followers_count' | 'following_count' | 'badges' | 'streak' | 'invites_remaining'
+>): User {
   const trust: TrustProfile = {
     score: profile.trust_score ?? 50,
     tier: (validTiers.includes(profile.trust_tier) ? profile.trust_tier : 'new') as User['trust']['tier'],

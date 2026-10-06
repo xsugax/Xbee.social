@@ -1,7 +1,10 @@
 ﻿/** @type {import('next').NextConfig} */
 const nextConfig = {
   images: {
-    domains: ['api.dicebear.com', 'picsum.photos'],
+    remotePatterns: [
+      { protocol: 'https', hostname: 'api.dicebear.com' },
+      { protocol: 'https', hostname: 'picsum.photos' },
+    ],
   },
   experimental: {
     workerThreads: false,

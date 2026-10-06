@@ -23,12 +23,14 @@ export default function RightSidebar() {
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [liveSearchUsers, setLiveSearchUsers] = useState<User[]>([]);
   const [suggestedUsers, setSuggestedUsers] = useState<User[]>([]);
-  const debounceTimer = useRef<NodeJS.Timeout>();
+  const debounceTimer = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
-    clearTimeout(debounceTimer.current);
+    if (debounceTimer.current) clearTimeout(debounceTimer.current);
     debounceTimer.current = setTimeout(() => setDebouncedQuery(searchQuery), 300);
-    return () => clearTimeout(debounceTimer.current);
+    return () => {
+      if (debounceTimer.current) clearTimeout(debounceTimer.current);
+    };
   }, [searchQuery]);
 
   // Live search users from Supabase

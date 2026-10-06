@@ -13,6 +13,7 @@ import { getSupabase } from '@/lib/supabase';
 import { User, Message } from '@/types';
 import { AGI_BOT_ID, agiBotUser, createAgiConversation, getAgiWelcomeMessage } from '@/lib/agiBot';
 import AgiChatWindow from '@/components/messages/AgiChatWindow';
+import { useToast } from '@/components/ui/Toast';
 
 export default function MessagesPage() {
   const {
@@ -22,6 +23,7 @@ export default function MessagesPage() {
     sendConnectionRequest, allUsers, addConversation, sendMessage, addReply
   } = useApp();
   const { isSupabaseConfigured, user: authUser } = useAuth();
+  const { showToast } = useToast();
   const [searchQuery, setSearchQuery] = useState('');
   const [showNewMsg, setShowNewMsg] = useState(false);
   const [newMsgSearch, setNewMsgSearch] = useState('');
@@ -50,14 +52,16 @@ export default function MessagesPage() {
         const q = `%${newMsgSearch.trim()}%`;
         const { data } = await supabase
           .from('profiles')
-          .select('*')
+          .select('id,username,display_name,avatar,cover_image,bio,verified,verification,trust_score,trust_tier,followers_count,following_count,created_at,updated_at,badges,streak,invites_remaining')
           .or(`username.ilike.${q},display_name.ilike.${q}`)
           .neq('id', currentUser.id)
           .limit(15);
         if (!controller.signal.aborted && data) {
           setLiveUsers(data.map((p: any) => profileToUser(p)));
         }
-      } catch {}
+      } catch (error) {
+        if (!controller.signal.aborted) console.error('Failed to search users:', error);
+      }
       if (!controller.signal.aborted) setSearchingUsers(false);
     }, 300);
     return () => { controller.abort(); clearTimeout(timeout); };
@@ -75,7 +79,7 @@ export default function MessagesPage() {
 
   // Users to show in new message modal — all users except self and AGI
   const newMsgUsers = newMsgSearch.trim()
-    ? allUsers.filter(u =>
+    ? (authUser ? liveUsers : allUsers).filter(u =>
         u.id !== currentUser.id && u.id !== AGI_BOT_ID && (
           u.displayName.toLowerCase().includes(newMsgSearch.toLowerCase()) ||
           u.username.toLowerCase().includes(newMsgSearch.toLowerCase())
@@ -84,29 +88,21 @@ export default function MessagesPage() {
     : [];
 
   // ─── OPEN OR CREATE A CONVERSATION ────────────────────────────
-  const openConversationWith = (targetUser: User) => {
+  const openConversationWith = async (targetUser: User) => {
     const existingConv = conversations.find(c =>
       c.participants.some(p => p.id === targetUser.id)
     );
-    if (existingConv) {
-      setActiveConvId(existingConv.id);
-    } else {
-      // Create a fresh conversation with this user
-      const greeting: Message = {
-        id: `msg-${Date.now()}-greet`,
-        senderId: targetUser.id,
-        content: `Connected with ${targetUser.displayName} 👋 Say hello!`,
-        type: 'text',
-        createdAt: new Date().toISOString(),
-        read: false,
-        encrypted: true,
-      };
-      const newConv = addConversation([currentUser, targetUser], greeting);
-      setActiveConvId(newConv.id);
+    try {
+      const conversation = existingConv || await addConversation([currentUser, targetUser]);
+      setActiveConvId(conversation.id);
+      setShowNewMsg(false);
+      setNewMsgSearch('');
+    } catch (error) {
+      console.error('Failed to start conversation:', error);
+      showToast('Could not start this conversation. Please try again.', 'error');
+    } finally {
+      setStartingConvo(null);
     }
-    setShowNewMsg(false);
-    setNewMsgSearch('');
-    setStartingConvo(null);
   };
 
   // ─── HANDLE CLICK ON USER ─────────────────────────────────────
@@ -114,13 +110,13 @@ export default function MessagesPage() {
     const isConnected = canSendMessage(user.id);
     setStartingConvo(user.id);
     if (isConnected) {
-      openConversationWith(user);
+      void openConversationWith(user);
     } else {
       // Not connected — send connection request + message request
       sendConnectionRequest(user.id);
       sendMessageRequest(user.id, `Hi! Let's connect on Xbee! 👋`);
       // Open a conversation anyway so they can chat after acceptance
-      openConversationWith(user);
+      void openConversationWith(user);
     }
   };
 

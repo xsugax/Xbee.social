@@ -59,10 +59,10 @@ interface AppState {
   following: Set<string>;
 
   conversations: Conversation[];
-  addConversation: (participants: User[], firstMessage: Message) => Conversation;
+  addConversation: (participants: User[], firstMessage?: Message) => Promise<Conversation>;
   loadConversations: () => Promise<void>;
   getMessages: (convId: string) => Message[];
-  sendMessage: (convId: string, content: string, ghostConfig?: { enabled: boolean; expiresIn: number }) => void;
+  sendMessage: (convId: string, content: string, ghostConfig?: { enabled: boolean; expiresIn: number }) => Promise<void>;
   addReply: (convId: string, reply: Message) => void;
   activeConvId: string | null;
   setActiveConvId: (id: string | null) => void;
@@ -279,19 +279,101 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }), [connections, pendingSent, pendingReceived]);
 
   // ─── Add a new conversation to the store ────────────────────────
-  const addConversation = useCallback((participants: User[], firstMessage: Message): Conversation => {
+  const addConversation = useCallback(async (participants: User[], firstMessage?: Message): Promise<Conversation> => {
+    let id = `conv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    let initialMessage = firstMessage;
+
+    if (isLive && authUser) {
+      const otherParticipant = participants.find(participant => participant.id !== authUser.id);
+      if (!otherParticipant) throw new Error('A direct conversation needs another participant.');
+
+      const supabase = getSupabase();
+      const { data: conversationId, error: conversationError } = await supabase.rpc('get_or_create_dm', {
+        user1_id: authUser.id,
+        user2_id: otherParticipant.id,
+      });
+      if (conversationError) throw conversationError;
+      if (!conversationId) throw new Error('Could not create the conversation.');
+      id = conversationId;
+
+      if (initialMessage?.content.trim()) {
+        const { data, error } = await supabase.from('messages').insert({
+          conversation_id: id,
+          sender_id: authUser.id,
+          content: initialMessage.content,
+          type: initialMessage.type === 'voice' || initialMessage.type === 'image' ? initialMessage.type : 'text',
+          ghost_expires_at: initialMessage.ghost?.enabled ? initialMessage.ghost.expiresAt : null,
+        }).select('*').single();
+        if (error) throw error;
+        if (!data) throw new Error('The first message was not saved.');
+        initialMessage = {
+          id: data.id,
+          senderId: data.sender_id,
+          content: data.content,
+          type: data.type as Message['type'],
+          createdAt: data.created_at,
+          read: false,
+          encrypted: false,
+          ghost: data.ghost_expires_at ? {
+            enabled: true,
+            expiresIn: Math.max(0, Math.floor((new Date(data.ghost_expires_at).getTime() - new Date(data.created_at).getTime()) / 1000)),
+            expiresAt: data.ghost_expires_at,
+          } : undefined,
+        };
+      } else {
+        const { data, error } = await supabase.from('messages')
+          .select('*')
+          .eq('conversation_id', id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (error) throw error;
+        initialMessage = data ? {
+          id: data.id,
+          senderId: data.sender_id,
+          content: data.content,
+          type: data.type as Message['type'],
+          createdAt: data.created_at,
+          read: true,
+          encrypted: false,
+        } : undefined;
+      }
+    }
+
+    const emptyMessage: Message = {
+      id: 'empty',
+      senderId: '',
+      content: 'No messages yet',
+      type: 'system',
+      createdAt: new Date().toISOString(),
+      read: true,
+      encrypted: false,
+    };
     const newConv: Conversation = {
-      id: `conv-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      id,
       participants,
-      lastMessage: firstMessage,
+      lastMessage: initialMessage || emptyMessage,
       unreadCount: 0,
-      pinned: false, muted: false, encrypted: true,
+      pinned: false, muted: false, encrypted: false,
       safeMode: false, riskLevel: 'safe', scamAlerts: [],
     };
-    setConversations(prev => [newConv, ...prev]);
-    setMessageStore(prev => ({ ...prev, [newConv.id]: [firstMessage] }));
+    setConversations(prev => {
+      const existing = prev.find(conversation => conversation.id === id);
+      if (existing) {
+        return [initialMessage ? { ...existing, lastMessage: initialMessage } : existing, ...prev.filter(conversation => conversation.id !== id)];
+      }
+      return [newConv, ...prev];
+    });
+    if (initialMessage && initialMessage.id !== 'empty') {
+      setMessageStore(prev => ({
+        ...prev,
+        [id]: prev[id]?.some(message => message.id === initialMessage!.id)
+          ? prev[id]
+          : [...(prev[id] || []), initialMessage!],
+      }));
+    }
     return newConv;
-  }, []);
+  }, [isLive, authUser]);
 
   // ─── Verified Changes (admin-granted special permissions) ──────
   // verifiedChanges: Set of user IDs who can edit followers, backdate posts, choose badge
@@ -617,8 +699,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const sendMessage = useCallback(async (convId: string, content: string, ghostConfig?: { enabled: boolean; expiresIn: number }) => {
     if (isLive) {
+      if (!authUser) throw new Error('Sign in to send messages.');
       const supabase = getSupabase();
-      await supabase.from('messages').insert({ conversation_id: convId, sender_id: authUser?.id || '', content, type: 'text', ghost_expires_at: ghostConfig?.enabled ? new Date(Date.now() + ghostConfig.expiresIn * 1000).toISOString() : null });
+      const { data, error } = await supabase.from('messages').insert({
+        conversation_id: convId,
+        sender_id: authUser.id,
+        content,
+        type: 'text',
+        ghost_expires_at: ghostConfig?.enabled ? new Date(Date.now() + ghostConfig.expiresIn * 1000).toISOString() : null,
+      }).select('*').single();
+      if (error) throw error;
+      if (!data) throw new Error('The message was not saved.');
+      const msg: Message = {
+        id: data.id,
+        senderId: data.sender_id,
+        content: data.content,
+        type: data.type as Message['type'],
+        createdAt: data.created_at,
+        read: false,
+        encrypted: false,
+        ghost: data.ghost_expires_at ? {
+          enabled: true,
+          expiresIn: ghostConfig?.expiresIn ?? 0,
+          expiresAt: data.ghost_expires_at,
+        } : undefined,
+      };
+      setMessageStore(prev => ({
+        ...prev,
+        [convId]: prev[convId]?.some(message => message.id === msg.id) ? prev[convId] : [...(prev[convId] || []), msg],
+      }));
+      setConversations(prev => prev.map(conversation => conversation.id === convId ? { ...conversation, lastMessage: msg } : conversation));
     } else {
       const msg: Message = {
         id: `msg-${Date.now()}`, senderId: currentUser.id, content, type: 'text', createdAt: new Date().toISOString(), read: false, encrypted: true,
@@ -687,42 +797,87 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const loadConversations = useCallback(async () => {
     if (!isLive || !authUser) return;
     const supabase = getSupabase();
-    const { data: participations } = await supabase.from('conversation_participants').select('conversation_id').eq('user_id', authUser.id);
+    const { data: participations, error: participationError } = await supabase.from('conversation_participants').select('conversation_id').eq('user_id', authUser.id);
+    if (participationError) throw participationError;
     if (!participations || participations.length === 0) { setConversations([]); return; }
     const convIds = participations.map(p => p.conversation_id);
-    const { data: convos } = await supabase.from('conversations').select('*').in('id', convIds).order('updated_at', { ascending: false });
+    const { data: convos, error: conversationsError } = await supabase.from('conversations').select('*').in('id', convIds).order('updated_at', { ascending: false });
+    if (conversationsError) throw conversationsError;
     if (!convos) return;
-    const { data: allParticipants } = await supabase.from('conversation_participants').select('conversation_id, user_id, profiles!conversation_participants_user_id_fkey(*)').in('conversation_id', convIds) as unknown as { data: ParticipantWithProfile[] | null };
+    const { data: allParticipants, error: participantsError } = await supabase.from('conversation_participants').select('conversation_id, user_id, profiles!conversation_participants_user_id_fkey(*)').in('conversation_id', convIds) as unknown as { data: ParticipantWithProfile[] | null; error: Error | null };
+    if (participantsError) throw participantsError;
     const appConvos: Conversation[] = await Promise.all(convos.map(async (c) => {
       const participants = (allParticipants || []).filter(p => p.conversation_id === c.id).map(p => p.profiles ? profileToUser(p.profiles as any) : currentUser);
-      const { data: lastMsg } = await supabase.from('messages').select('*').eq('conversation_id', c.id).order('created_at', { ascending: false }).limit(1).single();
-      const lastMessage: Message = lastMsg ? { id: lastMsg.id, senderId: lastMsg.sender_id, content: lastMsg.content, type: lastMsg.type as any, createdAt: lastMsg.created_at, read: true, encrypted: true } : { id: 'empty', senderId: '', content: 'No messages yet', type: 'system', createdAt: c.created_at, read: true, encrypted: false };
-      return { id: c.id, participants, lastMessage, unreadCount: 0, pinned: false, muted: false, encrypted: true, safeMode: false, riskLevel: 'safe' as const, scamAlerts: [] };
+      const { data: lastMsg, error: lastMessageError } = await supabase.from('messages').select('*').eq('conversation_id', c.id).order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (lastMessageError) throw lastMessageError;
+      const lastMessage: Message = lastMsg ? { id: lastMsg.id, senderId: lastMsg.sender_id, content: lastMsg.content, type: lastMsg.type as any, createdAt: lastMsg.created_at, read: true, encrypted: false } : { id: 'empty', senderId: '', content: 'No messages yet', type: 'system', createdAt: c.created_at, read: true, encrypted: false };
+      return { id: c.id, participants, lastMessage, unreadCount: 0, pinned: false, muted: false, encrypted: false, safeMode: false, riskLevel: 'safe' as const, scamAlerts: [] };
     }));
     setConversations(appConvos);
   }, [isLive, authUser, currentUser]);
 
-  useEffect(() => { loadConversations(); }, [loadConversations]);
+  useEffect(() => {
+    void loadConversations().catch(error => console.error('Failed to load conversations:', error));
+  }, [loadConversations]);
+
+  useEffect(() => {
+    if (!isLive || !authUser) return;
+    const supabase = getSupabase();
+    const refreshInbox = () => {
+      void loadConversations().catch(error => console.error('Failed to refresh conversations:', error));
+    };
+    const channel = supabase.channel(`inbox-${authUser.id}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'conversation_participants', filter: `user_id=eq.${authUser.id}` }, refreshInbox)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, refreshInbox)
+      .subscribe(status => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error(`Inbox realtime subscription failed: ${status}`);
+        }
+      });
+    return () => { void supabase.removeChannel(channel); };
+  }, [isLive, authUser, loadConversations]);
 
   // Supabase: Real-time messages
   useEffect(() => {
-    if (!isLive || !activeConvId) return;
+    if (!isLive || !authUser || !activeConvId) return;
     const supabase = getSupabase();
     const convId = activeConvId;
     async function loadMessages() {
-      const { data } = await supabase.from('messages').select('*').eq('conversation_id', convId).order('created_at', { ascending: true }).limit(100);
+      const { data, error } = await supabase.from('messages').select('*').eq('conversation_id', convId).order('created_at', { ascending: true }).limit(100);
+      if (error) {
+        console.error('Failed to load messages:', error);
+        return;
+      }
       if (data) {
-        const msgs: Message[] = data.map(m => ({ id: m.id, senderId: m.sender_id, content: m.content, type: m.type as any, createdAt: m.created_at, read: true, encrypted: true, ghost: m.ghost_expires_at ? { enabled: true, expiresIn: Math.max(0, Math.floor((new Date(m.ghost_expires_at).getTime() - new Date(m.created_at).getTime()) / 1000)), expiresAt: m.ghost_expires_at } : undefined }));
-        setMessageStore(prev => ({ ...prev, [convId]: msgs }));
+        const msgs: Message[] = data.map(m => ({ id: m.id, senderId: m.sender_id, content: m.content, type: m.type as any, createdAt: m.created_at, read: true, encrypted: false, ghost: m.ghost_expires_at ? { enabled: true, expiresIn: Math.max(0, Math.floor((new Date(m.ghost_expires_at).getTime() - new Date(m.created_at).getTime()) / 1000)), expiresAt: m.ghost_expires_at } : undefined }));
+        setMessageStore(prev => {
+          const realtimeMessages = prev[convId] || [];
+          const byId = new Map(msgs.map(message => [message.id, message]));
+          realtimeMessages.forEach(message => byId.set(message.id, message));
+          return { ...prev, [convId]: Array.from(byId.values()).sort((a, b) => a.createdAt.localeCompare(b.createdAt)) };
+        });
       }
     }
-    loadMessages();
-    const channel = supabase.channel(`messages-${convId}`).on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${convId}` }, (payload) => {
-      const m = payload.new; const msg: Message = { id: m.id, senderId: m.sender_id, content: m.content, type: m.type as any, createdAt: m.created_at, read: true, encrypted: true };
-      setMessageStore(prev => ({ ...prev, [convId]: [...(prev[convId] || []), msg] }));
-    }).subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [isLive, activeConvId]);
+    void loadMessages();
+    const channel = supabase.channel(`messages-${convId}`)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `conversation_id=eq.${convId}` }, (payload) => {
+        const m = payload.new;
+        const msg: Message = { id: m.id, senderId: m.sender_id, content: m.content, type: m.type as any, createdAt: m.created_at, read: true, encrypted: false };
+        setMessageStore(prev => ({
+          ...prev,
+          [convId]: prev[convId]?.some(message => message.id === msg.id)
+            ? prev[convId]
+            : [...(prev[convId] || []), msg],
+        }));
+        setConversations(prev => prev.map(conversation => conversation.id === convId ? { ...conversation, lastMessage: msg } : conversation));
+      })
+      .subscribe(status => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error(`Message realtime subscription failed: ${status}`);
+        }
+      });
+    return () => { void supabase.removeChannel(channel); };
+  }, [isLive, authUser, activeConvId]);
 
   // Supabase: Load following
   useEffect(() => {

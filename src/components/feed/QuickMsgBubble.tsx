@@ -8,6 +8,9 @@ import {
 } from 'lucide-react';
 import Avatar from '@/components/ui/Avatar';
 import { useApp } from '@/context/AppContext';
+import { profileToUser, useAuth } from '@/context/AuthContext';
+import { useToast } from '@/components/ui/Toast';
+import { getSupabase } from '@/lib/supabase';
 import { cn, formatTimeAgo } from '@/lib/utils';
 import { User, Message } from '@/types';
 
@@ -19,11 +22,16 @@ export default function QuickMsgBubble() {
     currentUser, allUsers, getConnectionStatus,
     sendConnectionRequest, connections, pendingSent
   } = useApp();
+  const { isSupabaseConfigured, user: authUser } = useAuth();
+  const { showToast } = useToast();
+  const isLive = isSupabaseConfigured && !!authUser;
   const [isOpen, setIsOpen] = useState(false);
   const [view, setView] = useState<'list' | 'chat' | 'new'>('list');
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [userSearch, setUserSearch] = useState('');
+  const [liveUsers, setLiveUsers] = useState<User[]>([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
   const [showEmoji, setShowEmoji] = useState(false);
   const [isTypingMock, setIsTypingMock] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -34,6 +42,41 @@ export default function QuickMsgBubble() {
   const messages = activeConvId ? getMessages(activeConvId) : [];
   const unreadTotal = conversations.reduce((s, c) => s + c.unreadCount, 0);
 
+  useEffect(() => {
+    if (!isLive || !authUser || view !== 'new' || !userSearch.trim()) {
+      setLiveUsers([]);
+      setSearchingUsers(false);
+      return;
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(async () => {
+      setSearchingUsers(true);
+      try {
+        const query = `%${userSearch.trim()}%`;
+        const { data, error } = await getSupabase()
+          .from('profiles')
+          .select('id,username,display_name,avatar,cover_image,bio,verified,verification,trust_score,trust_tier,followers_count,following_count,created_at,updated_at,badges,streak,invites_remaining')
+          .or(`username.ilike.${query},display_name.ilike.${query}`)
+          .neq('id', authUser.id)
+          .limit(10)
+          .abortSignal(controller.signal);
+        if (error) throw error;
+        if (!controller.signal.aborted) setLiveUsers((data || []).map(profileToUser));
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          console.error('Failed to search users:', error);
+          showToast('Could not search users. Please try again.', 'error');
+        }
+      } finally {
+        if (!controller.signal.aborted) setSearchingUsers(false);
+      }
+    }, 250);
+    return () => {
+      controller.abort();
+      clearTimeout(timeout);
+    };
+  }, [isLive, view, userSearch, authUser, showToast]);
+
   // Filter conversations with actual messages
   const validConvs = useMemo(() =>
     conversations.filter(c => getMessages(c.id).length > 0 || c.lastMessage.content !== 'No messages yet'),
@@ -43,13 +86,13 @@ export default function QuickMsgBubble() {
   const searchedUsers = useMemo(() => {
     if (!userSearch.trim()) return [];
     const existingIds = new Set(conversations.flatMap(c => c.participants.map(p => p.id)));
-    return allUsers
+    return (isLive ? liveUsers : allUsers)
       .filter(u => u.id !== currentUser.id && !existingIds.has(u.id))
       .filter(u =>
         u.displayName.toLowerCase().includes(userSearch.toLowerCase()) ||
         u.username.toLowerCase().includes(userSearch.toLowerCase())
       ).slice(0, 10);
-  }, [userSearch, conversations, allUsers, currentUser.id]);
+  }, [userSearch, conversations, allUsers, liveUsers, currentUser.id, isLive]);
 
   const filteredConvs = useMemo(() => {
     if (!userSearch.trim()) return validConvs;
@@ -76,10 +119,17 @@ export default function QuickMsgBubble() {
     setInput('');
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim() || !activeConvId) return;
-    sendMessage(activeConvId, input.trim());
+    try {
+      await sendMessage(activeConvId, input.trim());
+    } catch (error) {
+      console.error('Failed to send message:', error);
+      showToast('Message could not be sent. Please try again.', 'error');
+      return;
+    }
     setInput('');
+    if (isLive) return;
     setIsTypingMock(true);
     setTimeout(() => {
       setIsTypingMock(false);
@@ -105,7 +155,7 @@ export default function QuickMsgBubble() {
     }, 600 + Math.random() * 900);
   };
 
-  const handleStartNewChat = (user: User) => {
+  const handleStartNewChat = async (user: User) => {
     const existingConv = conversations.find(c =>
       c.participants.some(p => p.id === user.id)
     );
@@ -124,23 +174,29 @@ export default function QuickMsgBubble() {
       read: false,
       encrypted: true,
     };
-    const newConv = addConversation([currentUser, user], firstMsg);
-    setActiveConvId(newConv.id);
-    setView('chat');
-    setUserSearch('');
-    // Simulate a reply
-    setTimeout(() => {
-      const r: Message = {
-        id: `qmsg-${Date.now()}`,
-        senderId: user.id,
-        content: 'Hey! Great to connect! 😊',
-        type: 'text',
-        createdAt: new Date().toISOString(),
-        read: false,
-        encrypted: true,
-      };
-      addReply(newConv.id, r);
-    }, 800);
+    try {
+      const newConv = await addConversation([currentUser, user], firstMsg);
+      setActiveConvId(newConv.id);
+      setView('chat');
+      setUserSearch('');
+      if (!isLive) {
+        setTimeout(() => {
+          const r: Message = {
+            id: `qmsg-${Date.now()}`,
+            senderId: user.id,
+            content: 'Hey! Great to connect! 😊',
+            type: 'text',
+            createdAt: new Date().toISOString(),
+            read: false,
+            encrypted: false,
+          };
+          addReply(newConv.id, r);
+        }, 800);
+      }
+    } catch (error) {
+      console.error('Failed to start conversation:', error);
+      showToast('Could not start this conversation. Please try again.', 'error');
+    }
   };
 
   const handleClose = () => {
@@ -367,7 +423,7 @@ export default function QuickMsgBubble() {
                     </div>
                   )}
                   {searchedUsers.length === 0 && userSearch.trim() !== '' && (
-                    <div className="text-center py-8"><p className="text-xs text-theme-tertiary">No users found matching "{userSearch}"</p></div>
+                    <div className="text-center py-8"><p className="text-xs text-theme-tertiary">{searchingUsers ? 'Searching...' : `No users found matching "${userSearch}"`}</p></div>
                   )}
                   {searchedUsers.map((user) => {
                     const connStatus = getConnectionStatus(user.id);

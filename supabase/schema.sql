@@ -281,13 +281,11 @@ CREATE POLICY "Users can unfollow" ON public.follows FOR DELETE USING (auth.uid(
 ALTER TABLE public.conversations ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Participants can view conversations" ON public.conversations FOR SELECT
   USING (EXISTS (SELECT 1 FROM conversation_participants WHERE conversation_id = id AND user_id = auth.uid()));
-CREATE POLICY "Authenticated users can create conversations" ON public.conversations FOR INSERT WITH CHECK (true);
 
 -- CONVERSATION PARTICIPANTS
 ALTER TABLE public.conversation_participants ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Participants can view" ON public.conversation_participants FOR SELECT
   USING (user_id = auth.uid() OR EXISTS (SELECT 1 FROM conversation_participants cp WHERE cp.conversation_id = conversation_id AND cp.user_id = auth.uid()));
-CREATE POLICY "Users can join conversations" ON public.conversation_participants FOR INSERT WITH CHECK (true);
 CREATE POLICY "Users can update own participation" ON public.conversation_participants FOR UPDATE USING (user_id = auth.uid());
 
 -- MESSAGES
@@ -308,6 +306,8 @@ CREATE POLICY "Users can update own notifications" ON public.notifications FOR U
 -- ============================================================
 -- Enable realtime for tables that need live updates
 ALTER PUBLICATION supabase_realtime ADD TABLE public.messages;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.conversation_participants;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.notifications;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.posts;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.post_likes;
@@ -339,12 +339,19 @@ RETURNS UUID AS $$
 DECLARE
   conv_id UUID;
 BEGIN
-  -- Check if DM already exists
+  IF auth.uid() IS NULL OR user1_id <> auth.uid() OR user2_id = auth.uid() THEN
+    RAISE EXCEPTION 'You can only create a direct conversation as yourself';
+  END IF;
+
   SELECT cp1.conversation_id INTO conv_id
   FROM conversation_participants cp1
   JOIN conversation_participants cp2 ON cp1.conversation_id = cp2.conversation_id
   JOIN conversations c ON c.id = cp1.conversation_id
-  WHERE cp1.user_id = user1_id AND cp2.user_id = user2_id AND c.type = 'direct';
+  WHERE cp1.user_id = user1_id
+    AND cp2.user_id = user2_id
+    AND c.type = 'direct'
+    AND (SELECT count(*) FROM conversation_participants cp3 WHERE cp3.conversation_id = c.id) = 2
+  LIMIT 1;
 
   IF conv_id IS NULL THEN
     -- Create new conversation
@@ -355,7 +362,10 @@ BEGIN
 
   RETURN conv_id;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, pg_temp;
+
+REVOKE ALL ON FUNCTION get_or_create_dm(UUID, UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION get_or_create_dm(UUID, UUID) TO authenticated;
 
 -- Increment post like count (called via trigger or RPC)
 CREATE OR REPLACE FUNCTION increment_post_likes(p_id UUID, delta INTEGER)

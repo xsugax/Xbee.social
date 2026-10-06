@@ -20,19 +20,19 @@ Xbee.social is a Next.js social app. Supabase provides user accounts, persistent
 
    Set `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in `.env.local`. Never put a service-role key in a `NEXT_PUBLIC_` variable or commit `.env.local`.
 
-5. In the Supabase SQL Editor, run [`supabase/schema.sql`](./supabase/schema.sql) for a new project. For a project that already has the schema, run [`supabase/realtime_messaging_migration.sql`](./supabase/realtime_messaging_migration.sql).
+5. In the Supabase SQL Editor, run [`supabase/schema.sql`](./supabase/schema.sql) for a new project. Then run [`supabase/realtime_messaging_migration.sql`](./supabase/realtime_messaging_migration.sql) and [`supabase/social_connections_migration.sql`](./supabase/social_connections_migration.sql). Existing projects should run both migrations.
 6. Start the app:
 
    ```powershell
    npm run dev
    ```
 
-   Open `http://localhost:3000`, create accounts for two users, and test messages in separate browsers. New accounts must be able to sign in through Supabase Auth.
+   Open `http://localhost:3000`, create accounts for two users, and test connection requests, follows, posts, and live messages in separate browsers. Accepting a connection request creates a mutual connection and reciprocal follows.
 
 Without Supabase credentials, the app falls back to local demo mode; demo accounts and replies are not shared with other users.
 
 ## Deploy
 
-Deploy the repository with a Next.js host such as Vercel. Configure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in the host's project environment settings for the production environment, apply the SQL setup above, and deploy the `main` branch. Add the deployed site URL to the Supabase Auth redirect URL allowlist. Keep the Supabase service-role key private and do not expose it to the browser.
+Deploy the repository with a Next.js host such as Vercel. Configure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` in the host's project environment settings for the production environment, apply the SQL setup above, and deploy the `main` branch. Add the deployed site URL to the Supabase Auth redirect URL allowlist and set the Supabase Auth Site URL to the preferred production URL. Keep the Supabase service-role key private and do not expose it to the browser.
 
-Live chats are protected by Supabase row-level security and delivered through Supabase Realtime. Message contents are not end-to-end encrypted; the app uses HTTPS and database access policies, so the interface describes them as private chats rather than encrypted chats.
+Live chats are protected by Supabase row-level security and delivered through Supabase Realtime. Friend requests are stored in Supabase and accepted or declined through authenticated database functions; following is a separate action. Message contents are not end-to-end encrypted; the app uses HTTPS and database access policies, so the interface describes them as private chats rather than encrypted chats.

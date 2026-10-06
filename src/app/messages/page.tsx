@@ -1,12 +1,12 @@
 ﻿'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Search, Settings, PenSquare, Mail, X, UserPlus, Loader2, Inbox, Check, X as XIcon, UserCheck, Send, ArrowLeft } from 'lucide-react';
+import { Search, Settings, PenSquare, Mail, X, UserPlus, Loader2, Inbox, Check, X as XIcon, UserCheck } from 'lucide-react';
 import ChatList from '@/components/messages/ChatList';
 import ChatWindow from '@/components/messages/ChatWindow';
 import Avatar from '@/components/ui/Avatar';
-import { cn, formatTimeAgo } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 import { useApp } from '@/context/AppContext';
 import { useAuth, profileToUser } from '@/context/AuthContext';
 import { getSupabase } from '@/lib/supabase';
@@ -17,10 +17,10 @@ import { useToast } from '@/components/ui/Toast';
 
 export default function MessagesPage() {
   const {
-    conversations, currentUser, activeConvId, setActiveConvId, loadConversations,
-    messageRequests, sendMessageRequest, acceptMessageRequest, dismissMessageRequest,
+    conversations, currentUser, activeConvId, setActiveConvId,
+    messageRequests, acceptMessageRequest, dismissMessageRequest,
     messageRequestUnread, canSendMessage, connections, getConnectionStatus,
-    sendConnectionRequest, allUsers, addConversation, sendMessage, addReply
+    sendConnectionRequest, allUsers, addConversation
   } = useApp();
   const { isSupabaseConfigured, user: authUser } = useAuth();
   const { showToast } = useToast();
@@ -88,12 +88,12 @@ export default function MessagesPage() {
     : [];
 
   // ─── OPEN OR CREATE A CONVERSATION ────────────────────────────
-  const openConversationWith = async (targetUser: User) => {
+  const openConversationWith = async (targetUser: User, firstMessage?: Message) => {
     const existingConv = conversations.find(c =>
       c.participants.some(p => p.id === targetUser.id)
     );
     try {
-      const conversation = existingConv || await addConversation([currentUser, targetUser]);
+      const conversation = existingConv || await addConversation([currentUser, targetUser], firstMessage);
       setActiveConvId(conversation.id);
       setShowNewMsg(false);
       setNewMsgSearch('');
@@ -112,11 +112,16 @@ export default function MessagesPage() {
     if (isConnected) {
       void openConversationWith(user);
     } else {
-      // Not connected — send connection request + message request
-      sendConnectionRequest(user.id);
-      sendMessageRequest(user.id, `Hi! Let's connect on Xbee! 👋`);
-      // Open a conversation anyway so they can chat after acceptance
-      void openConversationWith(user);
+      void sendConnectionRequest(user.id);
+      void openConversationWith(user, {
+        id: `intro-${Date.now()}`,
+        senderId: currentUser.id,
+        content: "Hi! I'd like to connect with you on Xbee. 👋",
+        type: 'text',
+        createdAt: new Date().toISOString(),
+        read: false,
+        encrypted: false,
+      });
     }
   };
 
@@ -290,7 +295,7 @@ export default function MessagesPage() {
                     </div>
                     <div className="mt-1 flex items-center gap-2 justify-center text-xs text-theme-tertiary">
                       <UserPlus className="w-3.5 h-3.5 text-xbee-primary" />
-                      <span>New users get a connect + message request</span>
+                      <span>New users get a connection request and an intro message</span>
                     </div>
                   </div>
                 ) : searchingUsers ? (

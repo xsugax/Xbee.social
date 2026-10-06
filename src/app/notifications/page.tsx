@@ -13,7 +13,7 @@ import { useApp } from '@/context/AppContext';
 import { formatTimeAgo, cn } from '@/lib/utils';
 import { Notification } from '@/types';
 
-type NotifTab = 'all' | 'mentions' | 'verified';
+type NotifTab = 'all' | 'mentions' | 'verified' | 'requests';
 
 const notifIcons: Record<string, { icon: React.ElementType; color: string }> = {
   like: { icon: Heart, color: 'text-pink-500 bg-pink-500/10' },
@@ -32,7 +32,7 @@ const notifIcons: Record<string, { icon: React.ElementType; color: string }> = {
 };
 
 export default function NotificationsPage() {
-  const { notifications, markNotificationRead, unreadCount } = useApp();
+  const { currentUser, notifications, markNotificationRead, unreadCount, connectionRequests, acceptConnectionRequest, declineConnectionRequest } = useApp();
   const [activeTab, setActiveTab] = useState<NotifTab>('all');
   const [showSettings, setShowSettings] = useState(false);
   const [filterType, setFilterType] = useState<string | null>(null);
@@ -51,6 +51,9 @@ export default function NotificationsPage() {
     }
     return filtered;
   })();
+  const pendingRequests = connectionRequests.filter(request =>
+    request.to.id === currentUser.id && request.status === 'pending'
+  );
 
   const markAllRead = () => {
     notifications.forEach(n => {
@@ -113,10 +116,10 @@ export default function NotificationsPage() {
         </AnimatePresence>
 
         <div className="flex border-b border-theme">
-          {(['all', 'mentions', 'verified'] as NotifTab[]).map((tab) => (
+          {(['all', 'mentions', 'verified', 'requests'] as NotifTab[]).map((tab) => (
             <button key={tab} className="flex-1 py-3 relative transition-colors hover:bg-theme-hover" onClick={() => { setActiveTab(tab); scrollContainerRef.current?.scrollTo({ top: 0, behavior: 'smooth' }); }}>
               <span className={`text-sm font-medium capitalize ${activeTab === tab ? 'text-theme-primary font-bold' : 'text-theme-tertiary'}`}>
-                {tab === 'verified' ? 'Verified' : tab}
+                {tab === 'verified' ? 'Verified' : tab === 'requests' ? `Requests${pendingRequests.length ? ` (${pendingRequests.length})` : ''}` : tab}
               </span>
               {activeTab === tab && <motion.div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-12 h-1 bg-xbee-primary rounded-full" layoutId="notifTab" />}
             </button>
@@ -125,7 +128,43 @@ export default function NotificationsPage() {
       </div>
 
       <div ref={scrollContainerRef}>
-        {filteredNotifs.length === 0 ? (
+        {activeTab === 'requests' ? (
+          pendingRequests.length === 0 ? (
+            <div className="text-center py-16">
+              <UserPlus className="w-12 h-12 text-theme-tertiary mx-auto mb-3 opacity-40" />
+              <p className="text-theme-secondary font-medium">No connection requests</p>
+              <p className="text-sm text-theme-tertiary mt-1">Requests from other people will appear here.</p>
+            </div>
+          ) : pendingRequests.map(request => (
+            <div key={request.id} className="flex items-center gap-3 px-4 py-4 border-b border-theme">
+              <Link href={`/profile?user=${request.from.id}`}>
+                <Avatar name={request.from.displayName} src={request.from.avatar} size="md" />
+              </Link>
+              <div className="flex-1 min-w-0">
+                <Link href={`/profile?user=${request.from.id}`} className="text-sm font-bold text-theme-primary hover:underline">
+                  {request.from.displayName}
+                </Link>
+                <p className="text-xs text-theme-tertiary">@{request.from.username} wants to connect</p>
+                {request.message && <p className="text-sm text-theme-secondary mt-1 break-words">{request.message}</p>}
+                <p className="text-xs text-theme-tertiary mt-1">{formatTimeAgo(request.createdAt)}</p>
+              </div>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  className="px-3 py-1.5 rounded-full bg-xbee-primary text-white text-xs font-bold hover:bg-xbee-primary/90"
+                  onClick={() => { void acceptConnectionRequest(request.id); }}
+                >
+                  Accept
+                </button>
+                <button
+                  className="px-3 py-1.5 rounded-full border border-theme text-theme-secondary text-xs font-bold hover:text-red-400 hover:border-red-400"
+                  onClick={() => { void declineConnectionRequest(request.id); }}
+                >
+                  Decline
+                </button>
+              </div>
+            </div>
+          ))
+        ) : filteredNotifs.length === 0 ? (
           <div className="text-center py-16">
             <Bell className="w-12 h-12 text-theme-tertiary mx-auto mb-3 opacity-40" />
             <p className="text-theme-secondary font-medium">No notifications yet</p>

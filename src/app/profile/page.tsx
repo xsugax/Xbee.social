@@ -24,7 +24,7 @@ type ProfileTab = 'posts' | 'replies' | 'media' | 'likes';
 function ProfileContent() {
   const searchParams = useSearchParams();
   const userId = searchParams.get('user');
-  const { currentUser, posts, updateProfile, getConnectionStatus, sendConnectionRequest, acceptConnectionRequest, removeConnection, connectionRequests, isVerifiedChange, addPostAsUser } = useApp();
+  const { currentUser, posts, updateProfile, getConnectionStatus, sendConnectionRequest, cancelConnectionRequest, acceptConnectionRequest, removeConnection, connectionRequests, following, followUser, unfollowUser, isVerifiedChange, addPostAsUser } = useApp();
   const { isSupabaseConfigured } = useAuth();
   const [fetchedUser, setFetchedUser] = useState<User | null>(null);
   const [profilePosts, setProfilePosts] = useState<any[]>([]);
@@ -89,6 +89,7 @@ function ProfileContent() {
   const isConnected = connStatus === 'connected';
   const isPendingSent = connStatus === 'pending_sent';
   const isPendingReceived = connStatus === 'pending_received';
+  const isFollowing = displayUser ? following.has(displayUser.id) : false;
   const coverKey = 'xbee_cover_' + currentUser.id;
   const avatarKey = 'xbee_avatar_' + currentUser.id;
 
@@ -100,6 +101,13 @@ function ProfileContent() {
     );
     return req ? req.id : null;
   }, [displayUser, isPendingReceived, connectionRequests, currentUser.id]);
+  const outgoingRequestId = useMemo(() => {
+    if (!displayUser || !isPendingSent) return null;
+    const request = connectionRequests.find(item =>
+      item.from.id === currentUser.id && item.to.id === displayUser.id && item.status === 'pending'
+    );
+    return request?.id || null;
+  }, [displayUser, isPendingSent, connectionRequests, currentUser.id]);
 
   useEffect(() => {
     if (!displayUser) return;
@@ -235,22 +243,34 @@ function ProfileContent() {
               <Edit3 className="w-4 h-4" /> Edit Profile
             </motion.button>
           ) : (
-            <motion.button
-              className={cn('text-sm mt-16 px-5 py-2 rounded-full font-bold transition-colors',
-                isConnected ? 'border border-theme text-theme-primary hover:border-red-500 hover:text-red-500' :
-                isPendingSent ? 'border border-amber-400/50 text-amber-400' :
-                isPendingReceived ? 'border border-emerald-400/50 text-emerald-400' :
-                'bg-xbee-primary text-white hover:bg-xbee-primary/90'
-              )}
-              onClick={() => {
-                if (isConnected) removeConnection(displayUser.id);
-                else if (isPendingReceived && pendingRequestId) acceptConnectionRequest(pendingRequestId);
-                else if (!isPendingSent) sendConnectionRequest(displayUser.id);
-              }}
-              whileTap={{ scale: 0.95 }}
-            >
-              {isConnected ? 'Connected' : isPendingSent ? 'Request Sent' : isPendingReceived ? 'Accept Request' : 'Connect'}
-            </motion.button>
+            <div className="mt-16 flex gap-2">
+              <motion.button
+                className={cn('text-sm px-4 py-2 rounded-full font-bold transition-colors',
+                  isConnected ? 'border border-theme text-theme-primary hover:border-red-500 hover:text-red-500' :
+                  isPendingSent ? 'border border-amber-400/50 text-amber-400' :
+                  isPendingReceived ? 'border border-emerald-400/50 text-emerald-400' :
+                  'bg-xbee-primary text-white hover:bg-xbee-primary/90'
+                )}
+                onClick={() => {
+                  if (isConnected) void removeConnection(displayUser.id);
+                  else if (isPendingReceived && pendingRequestId) void acceptConnectionRequest(pendingRequestId);
+                  else if (isPendingSent && outgoingRequestId) void cancelConnectionRequest(outgoingRequestId);
+                  else void sendConnectionRequest(displayUser.id);
+                }}
+                whileTap={{ scale: 0.95 }}
+              >
+                {isConnected ? 'Connected' : isPendingSent ? 'Cancel Request' : isPendingReceived ? 'Accept Request' : 'Connect'}
+              </motion.button>
+              <motion.button
+                className={cn('text-sm px-4 py-2 rounded-full font-bold transition-colors border border-theme',
+                  isFollowing ? 'text-theme-primary hover:text-red-500 hover:border-red-500' : 'text-theme-primary hover:border-xbee-primary hover:text-xbee-primary'
+                )}
+                onClick={() => isFollowing ? void unfollowUser(displayUser.id) : void followUser(displayUser.id)}
+                whileTap={{ scale: 0.95 }}
+              >
+                {isFollowing ? 'Following' : 'Follow'}
+              </motion.button>
+            </div>
           )}
         </div>
 

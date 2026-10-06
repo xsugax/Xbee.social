@@ -7,10 +7,22 @@ import { generateId } from '@/lib/utils';
 import { useAuth, profileToUser } from '@/context/AuthContext';
 import { getSupabase } from '@/lib/supabase';
 import type { Profile, PostRow, NotificationRow } from '@/lib/database.types';
+import { useToast } from '@/components/ui/Toast';
 
 type PostWithProfile = PostRow & { profiles: Profile | null };
 type NotifWithActor = NotificationRow & { actor: Profile | null };
 type ParticipantWithProfile = { conversation_id: string; user_id: string; profiles: Profile | null };
+type ConnectionRequestWithProfiles = {
+  id: string;
+  sender_id: string;
+  recipient_id: string;
+  message: string | null;
+  status: ConnectionRequest['status'];
+  created_at: string;
+  responded_at: string | null;
+  sender: Profile | null;
+  recipient: Profile | null;
+};
 
 const hasSupabaseEnv = !!(
   process.env.NEXT_PUBLIC_SUPABASE_URL &&
@@ -35,10 +47,11 @@ interface AppState {
 
   // Connection System
   getConnectionStatus: (userId: string) => ConnectionStatus;
-  sendConnectionRequest: (userId: string, message?: string) => void;
-  acceptConnectionRequest: (requestId: string) => void;
-  declineConnectionRequest: (requestId: string) => void;
-  removeConnection: (userId: string) => void;
+  sendConnectionRequest: (userId: string, message?: string) => Promise<void>;
+  cancelConnectionRequest: (requestId: string) => Promise<void>;
+  acceptConnectionRequest: (requestId: string) => Promise<void>;
+  declineConnectionRequest: (requestId: string) => Promise<void>;
+  removeConnection: (userId: string) => Promise<void>;
   connectionRequests: ConnectionRequest[];
   connections: Set<string>;
   pendingSent: Set<string>;
@@ -106,6 +119,7 @@ function dbPostToPost(row: any, author: User, currentUserId: string, interaction
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { profile, user: authUser, isSupabaseConfigured } = useAuth();
+  const { showToast } = useToast();
   const isLive = isSupabaseConfigured && !!authUser;
 
   const [currentUser, setCurrentUser] = useState<User>(defaultUser);
@@ -145,7 +159,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Connection state
   const [connections, setConnections] = useState<Set<string>>(() => {
     if (typeof window === 'undefined') return new Set();
-    try { const saved = localStorage.getItem('xbee_connections'); if (saved) return new Set(JSON.parse(saved)); } catch {}
+    try { const saved = localStorage.getItem('xbee_friend_connections'); if (saved) return new Set(JSON.parse(saved)); } catch {}
+    return new Set();
+  });
+  const [following, setFollowing] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const saved = localStorage.getItem('xbee_following') || localStorage.getItem('xbee_connections');
+      if (saved) return new Set(JSON.parse(saved));
+    } catch {}
     return new Set();
   });
   const [pendingSent, setPendingSent] = useState<Set<string>>(() => {
@@ -169,22 +191,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return [];
   });
 
-  // Seed a mock incoming connection request so the accept flow is testable
-  useEffect(() => {
-    if (isLive || typeof window === 'undefined') return;
-    if (connectionRequests.length > 0) return;
-    const seedFrom = mockUsers[3]; // Use Priya Sharma as a mock requester
-    const seedReq: ConnectionRequest = {
-      id: 'creq-seed-1',
-      from: seedFrom,
-      to: currentUser,
-      status: 'pending',
-      createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-    };
-    setConnectionRequests([seedReq]);
-    setPendingReceived(prev => { const n = new Set(prev); n.add(seedFrom.id); return n; });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   const userInteractionsRef = useRef({ liked: new Set<string>(), reposted: new Set<string>(), bookmarked: new Set<string>() });
   const [hasMorePosts, setHasMorePosts] = useState(true);
   const [isLoadingMorePosts, setIsLoadingMorePosts] = useState(false);
@@ -193,8 +199,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   // Persist connection state
   useEffect(() => {
     if (isLive) return;
-    try { localStorage.setItem('xbee_connections', JSON.stringify(Array.from(connections))); } catch {}
+    try { localStorage.setItem('xbee_friend_connections', JSON.stringify(Array.from(connections))); } catch {}
   }, [connections, isLive]);
+  useEffect(() => {
+    if (isLive) return;
+    try { localStorage.setItem('xbee_following', JSON.stringify(Array.from(following))); } catch {}
+  }, [following, isLive]);
   useEffect(() => {
     if (isLive) return;
     try { localStorage.setItem('xbee_pending_sent', JSON.stringify(Array.from(pendingSent))); } catch {}
@@ -212,65 +222,174 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return 'none';
   }, [connections, pendingSent, pendingReceived, currentUser.id]);
 
-  const sendConnectionRequest = useCallback((userId: string, message?: string) => {
-    const targetUser = allUsers.find(u => u.id === userId);
-    if (!targetUser) return;
+  const refreshSocialGraph = useCallback(async () => {
+    if (!isLive || !authUser) return;
+    const supabase = getSupabase();
+    const { data: follows, error: followsError } = await supabase
+      .from('follows').select('following_id').eq('follower_id', authUser.id);
+    if (followsError) throw followsError;
+    const { data: connectionRows, error: connectionsError } = await supabase
+      .from('connections')
+      .select('user_low_id, user_high_id')
+      .or(`user_low_id.eq.${authUser.id},user_high_id.eq.${authUser.id}`);
+    if (connectionsError) throw connectionsError;
+    const { data: rows, error: requestsError } = await supabase
+      .from('connection_requests')
+      .select('*, sender:profiles!connection_requests_sender_id_fkey(*), recipient:profiles!connection_requests_recipient_id_fkey(*)')
+      .or(`sender_id.eq.${authUser.id},recipient_id.eq.${authUser.id}`)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false })
+      .limit(500) as unknown as { data: ConnectionRequestWithProfiles[] | null; error: Error | null };
+    if (requestsError) throw requestsError;
 
-    // Mark as pending_sent for the current user
-    setPendingSent(prev => { const n = new Set(prev); n.add(userId); return n; });
-        
-    const req: ConnectionRequest = {
-      id: `creq-${Date.now()}`,
-      from: currentUser,
-      to: targetUser,
-      status: 'pending',
-      message,
-      createdAt: new Date().toISOString(),
-    };
-    setConnectionRequests(prev => [...prev, req]);
+    const requests: ConnectionRequest[] = (rows || []).flatMap(row => {
+      if (!row.sender || !row.recipient) return [];
+      return [{
+        id: row.id,
+        from: profileToUser(row.sender),
+        to: profileToUser(row.recipient),
+        status: row.status,
+        message: row.message || undefined,
+        createdAt: row.created_at,
+        respondedAt: row.responded_at || undefined,
+      }];
+    });
+    const accepted = new Set((connectionRows || []).map(row =>
+      row.user_low_id === authUser.id ? row.user_high_id : row.user_low_id
+    ));
+    const sent = new Set<string>();
+    const received = new Set<string>();
+    for (const request of requests) {
+      const otherId = request.from.id === authUser.id ? request.to.id : request.from.id;
+      if (request.status === 'pending' && request.from.id === authUser.id) sent.add(otherId);
+      if (request.status === 'pending' && request.to.id === authUser.id) received.add(otherId);
+    }
+    setFollowing(new Set((follows || []).map(row => row.following_id)));
+    setConnections(accepted);
+    setPendingSent(sent);
+    setPendingReceived(received);
+    setConnectionRequests(requests);
+  }, [isLive, authUser]);
 
-    setNotifications(prev => [{
-      id: `notif-creq-${Date.now()}`,
-      type: 'follow' as const,
-      actor: currentUser,
-      content: message 
-        ? `wants to connect: "${message.substring(0, 50)}"` 
-        : 'wants to connect with you',
-      createdAt: new Date().toISOString(),
-      read: false,
-    }, ...prev]);
-  }, [currentUser, allUsers]);
+  const sendConnectionRequest = useCallback(async (userId: string, message?: string) => {
+    try {
+      if (userId === currentUser.id) throw new Error('You cannot send a connection request to yourself.');
+      if (isSupabaseConfigured && !authUser) throw new Error('Sign in to send a connection request.');
+      if (isLive && authUser) {
+        const { error } = await getSupabase().rpc('send_connection_request', {
+          p_recipient_id: userId,
+          p_message: message?.trim().slice(0, 200) || null,
+        });
+        if (error) throw error;
+        await refreshSocialGraph();
+      } else {
+        const targetUser = allUsers.find(user => user.id === userId);
+        if (!targetUser) throw new Error('That user could not be found.');
+        const reverse = connectionRequests.find(request =>
+          request.from.id === userId && request.to.id === currentUser.id && request.status === 'pending'
+        );
+        if (reverse) {
+          setConnectionRequests(prev => prev.map(request => request.id === reverse.id
+            ? { ...request, status: 'accepted', respondedAt: new Date().toISOString() }
+            : request));
+          setPendingReceived(prev => { const next = new Set(prev); next.delete(userId); return next; });
+          setConnections(prev => new Set([...prev, userId]));
+          setFollowing(prev => new Set([...prev, userId]));
+        } else {
+          setConnectionRequests(prev => [...prev, {
+            id: `creq-${Date.now()}`, from: currentUser, to: targetUser, status: 'pending',
+            message, createdAt: new Date().toISOString(),
+          }]);
+          setPendingSent(prev => new Set([...prev, userId]));
+        }
+      }
+      showToast('Connection request sent.');
+    } catch (error) {
+      console.error('Failed to send connection request:', error);
+      showToast(error instanceof Error ? error.message : 'Could not send connection request.', 'error');
+    }
+  }, [currentUser, isSupabaseConfigured, authUser, isLive, refreshSocialGraph, allUsers, connectionRequests, showToast]);
 
-  const acceptConnectionRequest = useCallback((requestId: string) => {
-    const req = connectionRequests.find(r => r.id === requestId);
-    if (!req) return;
-    const otherId = req.from.id === currentUser.id ? req.to.id : req.from.id;
-    setConnections(prev => { const n = new Set(prev); n.add(otherId); return n; });
-    setPendingSent(prev => { const n = new Set(prev); n.delete(otherId); return n; });
-    setPendingReceived(prev => { const n = new Set(prev); n.delete(otherId); return n; });
-    setConnectionRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'accepted', respondedAt: new Date().toISOString() } : r));
-    setNotifications(prev => [{
-      id: `notif-conn-${Date.now()}`,
-      type: 'follow' as const,
-      actor: currentUser,
-      content: `accepted your connection request 🎉 You are now connected!`,
-      createdAt: new Date().toISOString(),
-      read: false,
-    }, ...prev]);
-  }, [connectionRequests, currentUser]);
+  const cancelConnectionRequest = useCallback(async (requestId: string) => {
+    try {
+      if (isSupabaseConfigured && !authUser) throw new Error('Sign in to cancel a connection request.');
+      if (isLive) {
+        const { error } = await getSupabase().rpc('cancel_connection_request', { p_request_id: requestId });
+        if (error) throw error;
+        await refreshSocialGraph();
+      } else {
+        const request = connectionRequests.find(item => item.id === requestId && item.from.id === currentUser.id && item.status === 'pending');
+        if (!request) throw new Error('Pending connection request not found.');
+        setPendingSent(prev => { const next = new Set(prev); next.delete(request.to.id); return next; });
+        setConnectionRequests(prev => prev.map(item => item.id === requestId
+          ? { ...item, status: 'declined', respondedAt: new Date().toISOString() }
+          : item));
+      }
+      showToast('Connection request cancelled.', 'info');
+    } catch (error) {
+      console.error('Failed to cancel connection request:', error);
+      showToast(error instanceof Error ? error.message : 'Could not cancel connection request.', 'error');
+    }
+  }, [isSupabaseConfigured, authUser, isLive, refreshSocialGraph, connectionRequests, currentUser.id, showToast]);
 
-  const declineConnectionRequest = useCallback((requestId: string) => {
-    const req = connectionRequests.find(r => r.id === requestId);
-    if (!req) return;
-    const otherId = req.from.id === currentUser.id ? req.to.id : req.from.id;
-    setPendingSent(prev => { const n = new Set(prev); n.delete(otherId); return n; });
-    setPendingReceived(prev => { const n = new Set(prev); n.delete(otherId); return n; });
-    setConnectionRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'declined', respondedAt: new Date().toISOString() } : r));
-  }, [connectionRequests]);
+  const respondToConnectionRequest = useCallback(async (requestId: string, accept: boolean) => {
+    try {
+      const request = connectionRequests.find(item => item.id === requestId);
+      if (!request) throw new Error('Connection request not found.');
+      if (isSupabaseConfigured && !authUser) throw new Error('Sign in to respond to a connection request.');
+      if (isLive) {
+        const { error } = await getSupabase().rpc('respond_to_connection_request', {
+          p_request_id: requestId,
+          p_accept: accept,
+        });
+        if (error) throw error;
+        await refreshSocialGraph();
+      } else {
+        const otherId = request.from.id === currentUser.id ? request.to.id : request.from.id;
+        setPendingSent(prev => { const next = new Set(prev); next.delete(otherId); return next; });
+        setPendingReceived(prev => { const next = new Set(prev); next.delete(otherId); return next; });
+        setConnectionRequests(prev => prev.map(item => item.id === requestId
+          ? { ...item, status: accept ? 'accepted' : 'declined', respondedAt: new Date().toISOString() }
+          : item));
+        if (accept) {
+          setConnections(prev => new Set([...prev, otherId]));
+          setFollowing(prev => new Set([...prev, otherId]));
+        }
+      }
+      showToast(accept ? 'You are now connected.' : 'Connection request declined.', accept ? 'success' : 'info');
+    } catch (error) {
+      console.error(`Failed to ${accept ? 'accept' : 'decline'} connection request:`, error);
+      showToast(error instanceof Error ? error.message : 'Could not update connection request.', 'error');
+    }
+  }, [connectionRequests, isSupabaseConfigured, authUser, isLive, refreshSocialGraph, currentUser.id, showToast]);
 
-  const removeConnection = useCallback((userId: string) => {
-    setConnections(prev => { const n = new Set(prev); n.delete(userId); return n; });
-  }, []);
+  const acceptConnectionRequest = useCallback((requestId: string) => respondToConnectionRequest(requestId, true), [respondToConnectionRequest]);
+  const declineConnectionRequest = useCallback((requestId: string) => respondToConnectionRequest(requestId, false), [respondToConnectionRequest]);
+
+  const removeConnection = useCallback(async (userId: string) => {
+    try {
+      if (isSupabaseConfigured && !authUser) throw new Error('Sign in to remove a connection.');
+      if (isLive) {
+        const { error } = await getSupabase().rpc('remove_connection', { p_other_user_id: userId });
+        if (error) throw error;
+        await refreshSocialGraph();
+      } else {
+        setConnections(prev => { const next = new Set(prev); next.delete(userId); return next; });
+        setFollowing(prev => { const next = new Set(prev); next.delete(userId); return next; });
+        setConnectionRequests(prev => prev.map(request =>
+          request.status === 'accepted' &&
+          ((request.from.id === currentUser.id && request.to.id === userId) ||
+            (request.to.id === currentUser.id && request.from.id === userId))
+            ? { ...request, status: 'declined', respondedAt: new Date().toISOString() }
+            : request
+        ));
+      }
+      showToast('Connection removed.', 'info');
+    } catch (error) {
+      console.error('Failed to remove connection:', error);
+      showToast(error instanceof Error ? error.message : 'Could not remove connection.', 'error');
+    }
+  }, [isSupabaseConfigured, authUser, isLive, refreshSocialGraph, currentUser.id, showToast]);
 
   const connectionHeat = React.useMemo(() => ({
     level: Math.min(100, connections.size * 15 + pendingSent.size * 5 + pendingReceived.size * 8),
@@ -464,18 +583,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return connections.has(userId);
   }, [connections, currentUser.id]);
 
-  // ===== OLD FUNCTIONS KEPT FOR BACKWARDS COMPAT =====
   const followUser = useCallback(async (userId: string) => {
-    sendConnectionRequest(userId);
-  }, [sendConnectionRequest]);
+    try {
+      if (userId === currentUser.id) throw new Error('You cannot follow yourself.');
+      if (isSupabaseConfigured && !authUser) throw new Error('Sign in to follow users.');
+      if (isLive) {
+        const { error } = await getSupabase().rpc('follow_user', { p_following_id: userId });
+        if (error) throw error;
+        await refreshSocialGraph();
+      } else {
+        setFollowing(prev => new Set([...prev, userId]));
+      }
+    } catch (error) {
+      console.error('Failed to follow user:', error);
+      showToast(error instanceof Error ? error.message : 'Could not follow user.', 'error');
+    }
+  }, [currentUser.id, isSupabaseConfigured, authUser, isLive, refreshSocialGraph, showToast]);
 
   const unfollowUser = useCallback(async (userId: string) => {
-    removeConnection(userId);
-  }, [removeConnection]);
+    try {
+      if (isSupabaseConfigured && !authUser) throw new Error('Sign in to unfollow users.');
+      if (isLive) {
+        const { error } = await getSupabase().rpc('unfollow_user', { p_following_id: userId });
+        if (error) throw error;
+        await refreshSocialGraph();
+      } else {
+        setFollowing(prev => { const next = new Set(prev); next.delete(userId); return next; });
+      }
+    } catch (error) {
+      console.error('Failed to unfollow user:', error);
+      showToast(error instanceof Error ? error.message : 'Could not unfollow user.', 'error');
+    }
+  }, [isSupabaseConfigured, authUser, isLive, refreshSocialGraph, showToast]);
 
   const isFollowingUser = useCallback((userId: string) => {
-    return connections.has(userId) || pendingSent.has(userId);
-  }, [connections, pendingSent]);
+    return following.has(userId);
+  }, [following]);
 
   // Sync current user
   useEffect(() => {
@@ -879,16 +1022,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return () => { void supabase.removeChannel(channel); };
   }, [isLive, authUser, activeConvId]);
 
-  // Supabase: Load following
+  // Load follows and friend requests for the signed-in account.
   useEffect(() => {
     if (!isLive) return;
+    const timer = window.setTimeout(() => {
+      void refreshSocialGraph().catch(error => {
+        console.error('Failed to load social connections:', error);
+        showToast('Could not load your connections. Refresh to try again.', 'error');
+      });
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [isLive, refreshSocialGraph, showToast]);
+
+  useEffect(() => {
+    if (!isLive || !authUser) return;
     const supabase = getSupabase();
-    async function loadConnections() {
-      const { data } = await supabase.from('follows').select('following_id').eq('follower_id', authUser?.id || '');
-      if (data) setConnections(new Set(data.map(f => f.following_id)));
-    }
-    loadConnections();
-  }, [isLive, authUser]);
+    const refresh = () => {
+      void refreshSocialGraph().catch(error => console.error('Failed to refresh connections:', error));
+    };
+    const channel = supabase.channel(`connections-${authUser.id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'connection_requests' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'connections' }, refresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'follows' }, refresh)
+      .subscribe(status => {
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          console.error(`Connection realtime subscription failed: ${status}`);
+        }
+      });
+    return () => { void supabase.removeChannel(channel); };
+  }, [isLive, authUser, refreshSocialGraph]);
 
   // Supabase: Load notifications
   useEffect(() => {
@@ -931,13 +1093,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       posts, addPost, likePost, repostPost, bookmarkPost, voteOnPoll, viewPost,
       loadMorePosts, hasMorePosts, isLoadingMorePosts,
 
-      getConnectionStatus, sendConnectionRequest, acceptConnectionRequest,
+      getConnectionStatus, sendConnectionRequest, cancelConnectionRequest, acceptConnectionRequest,
       declineConnectionRequest, removeConnection,
       connectionRequests, connections, pendingSent, pendingReceived, connectionHeat,
 
       messageRequests, sendMessageRequest, acceptMessageRequest, dismissMessageRequest, messageRequestUnread,
 
-      followUser, unfollowUser, isFollowingUser, following: connections,
+      followUser, unfollowUser, isFollowingUser, following,
 
       conversations, addConversation, loadConversations, getMessages, sendMessage, addReply, activeConvId, setActiveConvId, canSendMessage,
 

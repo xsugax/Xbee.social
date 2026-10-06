@@ -20,8 +20,9 @@ interface UserActionPopoverProps {
 
 export default function UserActionPopover({ user, children }: UserActionPopoverProps) {
   const {
-    currentUser, getConnectionStatus, sendConnectionRequest,
-    removeConnection, connections, pendingSent, addConversation, sendMessage
+    currentUser, getConnectionStatus, sendConnectionRequest, cancelConnectionRequest,
+    acceptConnectionRequest, declineConnectionRequest, connectionRequests,
+    removeConnection
   } = useApp();
   const [isOpen, setIsOpen] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -29,6 +30,13 @@ export default function UserActionPopover({ user, children }: UserActionPopoverP
   const connStatus = getConnectionStatus(user.id);
   const isConnected = connStatus === 'connected';
   const isPending = connStatus === 'pending_sent';
+  const isPendingReceived = connStatus === 'pending_received';
+  const incomingRequest = connectionRequests.find(request =>
+    request.from.id === user.id && request.to.id === currentUser.id && request.status === 'pending'
+  );
+  const outgoingRequest = connectionRequests.find(request =>
+    request.from.id === currentUser.id && request.to.id === user.id && request.status === 'pending'
+  );
 
   useEffect(() => {
     if (!isOpen) return;
@@ -81,7 +89,7 @@ export default function UserActionPopover({ user, children }: UserActionPopoverP
             <div className="p-2 space-y-0.5">
               {user.id !== currentUser.id && (
                 <>
-                  {!isConnected && !isPending && (
+                  {!isConnected && !isPending && !isPendingReceived && (
                     <motion.button
                       className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-theme-hover text-left transition-colors"
                       onClick={() => { sendConnectionRequest(user.id); setIsOpen(false); }}
@@ -97,14 +105,33 @@ export default function UserActionPopover({ user, children }: UserActionPopoverP
                     </motion.button>
                   )}
                   {isPending && (
-                    <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-amber-500/10">
+                    <button
+                      className="flex items-center gap-3 w-full px-3 py-2.5 rounded-lg bg-amber-500/10 text-left"
+                      onClick={() => { if (outgoingRequest) void cancelConnectionRequest(outgoingRequest.id); }}
+                    >
                       <div className="w-8 h-8 rounded-full bg-amber-500/20 flex items-center justify-center">
                         <UserCheck className="w-4 h-4 text-amber-400" />
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-amber-400">Request pending</p>
+                        <p className="text-sm font-medium text-amber-400">Cancel request</p>
                         <p className="text-[10px] text-amber-400/70">Waiting for response</p>
                       </div>
+                    </button>
+                  )}
+                  {isPendingReceived && incomingRequest && (
+                    <div className="flex gap-2 px-3 py-2">
+                      <button
+                        className="flex-1 px-3 py-2 rounded-lg bg-xbee-primary text-white text-xs font-bold"
+                        onClick={() => { void acceptConnectionRequest(incomingRequest.id); setIsOpen(false); }}
+                      >
+                        Accept request
+                      </button>
+                      <button
+                        className="px-3 py-2 rounded-lg border border-theme text-theme-secondary text-xs font-bold"
+                        onClick={() => { void declineConnectionRequest(incomingRequest.id); setIsOpen(false); }}
+                      >
+                        Decline
+                      </button>
                     </div>
                   )}
                   {isConnected && (

@@ -254,6 +254,76 @@ export interface Database {
           }
         ];
       };
+      connection_requests: {
+        Row: {
+          id: string;
+          sender_id: string;
+          recipient_id: string;
+          message: string | null;
+          status: string;
+          created_at: string;
+          responded_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          sender_id: string;
+          recipient_id: string;
+          message?: string | null;
+          status?: string;
+          created_at?: string;
+          responded_at?: string | null;
+        };
+        Update: {
+          message?: string | null;
+          status?: string;
+          responded_at?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "connection_requests_sender_id_fkey";
+            columns: ["sender_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "connection_requests_recipient_id_fkey";
+            columns: ["recipient_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      connections: {
+        Row: {
+          user_low_id: string;
+          user_high_id: string;
+          created_at: string;
+        };
+        Insert: {
+          user_low_id: string;
+          user_high_id: string;
+          created_at?: string;
+        };
+        Update: never;
+        Relationships: [
+          {
+            foreignKeyName: "connections_user_low_id_fkey";
+            columns: ["user_low_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "connections_user_high_id_fkey";
+            columns: ["user_high_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       conversations: {
         Row: {
           id: string;
@@ -482,6 +552,30 @@ export interface Database {
       get_or_create_dm: {
         Args: { user1_id: string; user2_id: string };
         Returns: string;
+      };
+      send_connection_request: {
+        Args: { p_recipient_id: string; p_message?: string | null };
+        Returns: string;
+      };
+      respond_to_connection_request: {
+        Args: { p_request_id: string; p_accept: boolean };
+        Returns: undefined;
+      };
+      cancel_connection_request: {
+        Args: { p_request_id: string };
+        Returns: undefined;
+      };
+      remove_connection: {
+        Args: { p_other_user_id: string };
+        Returns: undefined;
+      };
+      follow_user: {
+        Args: { p_following_id: string };
+        Returns: undefined;
+      };
+      unfollow_user: {
+        Args: { p_following_id: string };
+        Returns: undefined;
       };
       increment_post_likes: {
         Args: { p_id: string; delta: number };
